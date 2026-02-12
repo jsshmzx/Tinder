@@ -1,7 +1,7 @@
 FROM python:3.14-slim
 
 WORKDIR /app
-
+ENV APP_ENV=production
 # 复制requirements文件
 COPY requirements.txt .
 

@@ -43,13 +43,17 @@ async def root():
 # 尝试启动服务器
 if __name__ == "__main__":
     try:
+        # 根据环境变量设置日志级别
+        env = os.getenv('APP_ENV', 'development').lower()
+        log_level = "info" if env == "development" else "warning"
+        
         uvicorn.run(
             app="server:app",
             host='0.0.0.0',
             port=1912,
             reload=True,
             access_log=False,
-            log_level="warning"
+            log_level=log_level
         )
     except Exception as e:
         print(f"Error starting server: {e}")
