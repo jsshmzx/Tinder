@@ -41,6 +41,11 @@ async def root():
 
 
 # 尝试启动服务器
+print("Tinder服务器启动中...")
+print(f"===================================================")
+print(f"Python版本: {platform.python_version()}")
+print(f"当前APP_ENV: {os.getenv('APP_ENV', 'not set')}")
+print(f"===================================================")
 if __name__ == "__main__":
     try:
         # 根据环境变量设置日志级别
