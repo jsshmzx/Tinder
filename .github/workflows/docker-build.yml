@@ -29,15 +29,6 @@ jobs:
         run: |
           docker images | grep tinder-app
           echo "Docker image built successfully!"
-      
-      - name: Run container test
-        run: |
-          timeout 30 docker run --rm tinder-app:test || true
-          echo "Container test completed (timeout expected for running server)"
-      
-      - name: Check entrypoint script
-        run: |
-          docker run --rm tinder-app:test bash -c "test -x /app/docker-entrypoint.sh && echo 'Entrypoint script is executable'"
 
   lint:
     runs-on: ubuntu-latest

@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from datetime import datetime
 import platform
-import subprocess
 from typing import Dict, Any
 
 # 加载环境变量
@@ -25,29 +24,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 获取构建信息
-def get_build_info() -> Dict[str, Any]:
-    """获取应用的构建信息"""
-    try:
-        # 获取构建哈希（git commit hash）
-        build_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'], 
-                                           stderr=subprocess.DEVNULL,
-                                           cwd='/workspaces/Tinder').decode().strip()[:7]
-    except:
-        build_hash = "unknown"
-    
+# 获取系统信息
+def get_system_info() -> Dict[str, Any]:
+    """获取应用的系统信息"""
     return {
         "name": "Tinder",
         "system_time": datetime.now().isoformat(),
-        "build_hash": build_hash,
         "system_version": platform.platform()
     }
 
 # 根路由
 @app.get("/")
 async def root():
-    """返回应用的构建信息"""
-    return get_build_info()
+    """返回应用的系统信息"""
+    return get_system_info()
 
 # 尝试启动服务器
 if __name__ == "__main__":
