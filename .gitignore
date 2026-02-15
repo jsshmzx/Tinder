@@ -208,3 +208,8 @@ __marimo__/
 
 # Idea
 .idea/
+
+# Apple
+.DS_Store
+.Spotlight-V100
+.Trashes
