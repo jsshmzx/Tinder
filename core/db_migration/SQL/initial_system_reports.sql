@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS system_reports (
+    id SERIAL PRIMARY KEY,
+    uuid TEXT NOT NULL UNIQUE,
+    content TEXT,
+    frequency INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

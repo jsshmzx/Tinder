@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS favourites (
+    id SERIAL PRIMARY KEY,
+    uuid TEXT NOT NULL UNIQUE,
+    user_uuid TEXT NOT NULL,
+    types TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
