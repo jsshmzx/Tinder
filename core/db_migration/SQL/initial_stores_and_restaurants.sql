@@ -6,6 +6,6 @@ CREATE TABLE IF NOT EXISTS stores_and_restaurants (
     likes INTEGER DEFAULT 0,
     start_date TIMESTAMP,
     end_date TIMESTAMP,
-    ratings DECIMAL(3, 2),
+    ratings DECIMAL(4, 2),
     status TEXT
 );
