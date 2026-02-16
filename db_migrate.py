@@ -74,12 +74,14 @@ def execute_migrations(conn):
                     sql_script = f.read()
                 cursor.execute(sql_script)
                 # 记录迁移历史
-                insert_sql = "INSERT INTO migration_history (migration_name) VALUES (%s);"
-                cursor.execute(insert_sql, (migration,))
+                insert_sql = "INSERT INTO migration_history (migration_name, status, executed_at) VALUES (%s, %s, CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai');"
+                cursor.execute(insert_sql, (migration, 'success'))
                 conn.commit()
                 print(f"✅ 迁移脚本执行成功: {migration}")
         except Exception as e:
             conn.rollback()
+            cursor.execute("INSERT INTO migration_history (migration_name, status, error_message) VALUES (%s, %s, %s);", (migration, 'failed', str(e)))
+            conn.commit()
             print(f"❌ 执行迁移脚本失败: {migration}, 错误: {e}")
         finally:
             cursor.close()
