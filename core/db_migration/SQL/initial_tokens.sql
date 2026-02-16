@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS tokens (
     assigner TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     expired_at TIMESTAMP,
-    status TEXT
+    current_status TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_tokens_belong_to ON tokens (belong_to);

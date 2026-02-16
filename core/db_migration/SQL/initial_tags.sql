@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS tags (
     id SERIAL PRIMARY KEY,
     uuid TEXT NOT NULL UNIQUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    name TEXT NOT NULL,
+    tag_name TEXT NOT NULL,
     created_by TEXT,
-    status TEXT
+    current_status TEXT
 );

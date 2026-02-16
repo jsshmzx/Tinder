@@ -6,5 +6,5 @@ CREATE TABLE IF NOT EXISTS system_logs (
     created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     being_flagged BOOLEAN DEFAULT FALSE,
     content TEXT,
-    version TEXT
+    system_version TEXT
 );
