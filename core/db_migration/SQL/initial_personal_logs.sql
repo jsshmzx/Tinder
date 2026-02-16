@@ -5,5 +5,5 @@ CREATE TABLE IF NOT EXISTS personal_logs (
     level TEXT,
     log_type TEXT,
     content TEXT,
-    time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
