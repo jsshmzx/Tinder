@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS wall_looking_for (
     seeker TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     looking_for_type TEXT,
-    last_seen_time TIMESTAMP,
+    last_seen_at TIMESTAMP,
     helper TEXT,
     clues TEXT
 );
