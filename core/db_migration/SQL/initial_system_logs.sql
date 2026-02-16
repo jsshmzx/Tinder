@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS system_logs (
     uuid TEXT NOT NULL UNIQUE,
     log_level TEXT,
     log_type TEXT,
-    created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     being_flagged BOOLEAN DEFAULT FALSE,
     content TEXT,
     system_version TEXT
