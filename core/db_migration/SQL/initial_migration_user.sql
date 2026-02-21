@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     uuid TEXT NOT NULL UNIQUE,
+    password TEXT,
     avatar_url TEXT,
     nickname TEXT,
     real_name TEXT,
