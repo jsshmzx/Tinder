@@ -16,6 +16,11 @@ from core.database.connection.db import dispose_engine, get_session
 load_dotenv()
 os.environ['TZ'] = 'Asia/Shanghai' # 设置时区为上海
 
+# 生产环境禁用API文档
+APP_ENV = os.getenv('APP_ENV', 'development').lower()
+DOCS_URL = '/docs' if APP_ENV == 'development' else None
+REDOC_URL = '/redoc' if APP_ENV == 'development' else None
+
 
 # 应用生命周期管理：启动时连接数据库，停止时断开
 @asynccontextmanager
@@ -34,8 +39,8 @@ async def lifespan(app: FastAPI):
     redis_conn.stop()
 
 
-# 创建FastAPI应用
-app = FastAPI(lifespan=lifespan)
+# 创建FastAPI应用（生产环境禁用API文档）
+app = FastAPI(lifespan=lifespan, docs_url=DOCS_URL, redoc_url=REDOC_URL)
 
 # 配置CORS中间件
 app.add_middleware(
@@ -63,8 +68,7 @@ custom_log("SUCCESS", f"===================================================")
 if __name__ == "__main__":
     try:
         # 根据环境变量设置日志级别
-        env = os.getenv('APP_ENV', 'development').lower()
-        log_level = "info" if env == "development" else "warning"
+        log_level = "info" if APP_ENV == "development" else "warning"
         
         uvicorn.run(
             app="server:app",
