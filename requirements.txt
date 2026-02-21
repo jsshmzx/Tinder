@@ -4,3 +4,8 @@ python-dotenv
 pydantic 
 psycopg2-binary 
 python-multipart
+redis
+sqlalchemy>=2.0
+pytest
+pytest-asyncio
+httpx
