@@ -76,6 +76,7 @@ def integration_app(db_engine):
     """A full FastAPI application with FirewallMiddleware and the index router,
     backed by the real test database and Redis (via environment variables)."""
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
 
     from core.database.connection import db as db_module
     from core.middleware.firewall.index import FirewallMiddleware
@@ -88,7 +89,7 @@ def integration_app(db_engine):
     elif async_url.startswith("postgresql+psycopg2://"):
         async_url = async_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
 
-    async_engine = create_async_engine(async_url, pool_pre_ping=True)
+    async_engine = create_async_engine(async_url, pool_pre_ping=True, poolclass=NullPool)
     db_module._engine = async_engine
     db_module._session_factory = async_sessionmaker(
         bind=async_engine, autocommit=False, autoflush=False, expire_on_commit=False
