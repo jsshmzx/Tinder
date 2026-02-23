@@ -5,7 +5,8 @@
 ## 技术栈
 
 - **框架**: FastAPI
-- **数据库**: PostgreSQL
+- **数据库**: PostgreSQL（异步驱动：asyncpg）
+- **ORM**: SQLAlchemy 2.x（异步模式）
 - **缓存**: Redis
 - **部署**: Docker
 
@@ -13,7 +14,7 @@
 
 ### 环境要求
 
-- Python 3.8+
+- Python 3.10+
 - PostgreSQL
 - Redis
 
