@@ -6,7 +6,7 @@ from core.database.connection.db import Base, get_session
 
 
 class BaseDAO:
-    """所有 DAO 的基类，基于 SQLAlchemy ORM 提供通用 CRUD 操作。
+    """所有 DAO 的基类，基于 SQLAlchemy 异步 ORM 提供通用 CRUD 操作。
 
     子类只需声明 :attr:`MODEL` 属性（对应 ORM 模型类），即可继承：
 
@@ -56,60 +56,58 @@ class BaseDAO:
     # CRUD
     # ------------------------------------------------------------------
 
-    def find_by_uuid(self, uuid: str) -> dict[str, Any] | None:
+    async def find_by_uuid(self, uuid: str) -> dict[str, Any] | None:
         """根据 uuid 查询单条记录，不存在时返回 None。"""
         model = self._get_model()
-        with get_session() as session:
-            obj = session.scalars(
-                select(model).where(model.uuid == uuid)
+        async with get_session() as session:
+            obj = (
+                await session.scalars(select(model).where(model.uuid == uuid))
             ).first()
             return self._to_dict(obj) if obj else None
 
-    def find_all(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    async def find_all(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """分页查询所有记录，默认返回前 100 条。"""
         model = self._get_model()
-        with get_session() as session:
-            objs = session.scalars(
+        async with get_session() as session:
+            objs = await session.scalars(
                 select(model).order_by(model.id).limit(limit).offset(offset)
             )
             return [self._to_dict(o) for o in objs]
 
-    def create(self, data: dict[str, Any]) -> dict[str, Any]:
+    async def create(self, data: dict[str, Any]) -> dict[str, Any]:
         """插入新记录并返回完整行（含数据库生成的字段）。"""
         model = self._get_model()
         obj = model(**self._data_to_kwargs(data))
-        with get_session() as session:
+        async with get_session() as session:
             session.add(obj)
-            session.flush()
-            session.refresh(obj)
+            await session.flush()
+            await session.refresh(obj)
             return self._to_dict(obj)
 
-    def update(self, uuid: str, data: dict[str, Any]) -> dict[str, Any] | None:
+    async def update(self, uuid: str, data: dict[str, Any]) -> dict[str, Any] | None:
         """根据 uuid 更新字段，返回更新后的行，若记录不存在则返回 None。"""
         model = self._get_model()
-        with get_session() as session:
-            obj = session.scalars(
-                select(model).where(model.uuid == uuid)
+        async with get_session() as session:
+            obj = (
+                await session.scalars(select(model).where(model.uuid == uuid))
             ).first()
             if obj is None:
                 return None
             for k, v in self._data_to_kwargs(data).items():
                 setattr(obj, k, v)
-            session.flush()
-            session.refresh(obj)
+            await session.flush()
+            await session.refresh(obj)
             return self._to_dict(obj)
 
-    def delete(self, uuid: str) -> bool:
+    async def delete(self, uuid: str) -> bool:
         """根据 uuid 删除记录，成功删除返回 True，记录不存在返回 False。"""
         model = self._get_model()
-        with get_session() as session:
-            obj = session.scalars(
-                select(model).where(model.uuid == uuid)
+        async with get_session() as session:
+            obj = (
+                await session.scalars(select(model).where(model.uuid == uuid))
             ).first()
             if obj is None:
                 return False
-            session.delete(obj)
+            await session.delete(obj)
             return True
-
-
 

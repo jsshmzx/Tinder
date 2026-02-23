@@ -27,14 +27,14 @@ REDOC_URL = '/redoc' if APP_ENV == 'development' else None
 async def lifespan(app: FastAPI):
     from sqlalchemy import text
     try:
-        with get_session() as session:
-            session.execute(text("SELECT 1"))
+        async with get_session() as session:
+            await session.execute(text("SELECT 1"))
         custom_log("SUCCESS", "PostgreSQL 连接成功")
     except Exception as exc:
         custom_log("ERROR", f"PostgreSQL 连接失败: {exc}")
     redis_conn.start()
     yield
-    dispose_engine()
+    await dispose_engine()
     custom_log("SUCCESS", "PostgreSQL 连接已关闭")
     redis_conn.stop()
 

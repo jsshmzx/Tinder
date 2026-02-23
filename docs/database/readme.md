@@ -35,23 +35,23 @@ REDIS_URL=redis://localhost:6379/0
 
 ## 数据库连接管理
 
-PostgreSQL 连接由 SQLAlchemy Engine 统一管理，ORM 基础设施位于 `core/database/connection/db.py`。
-应用启动时自动验证连接，停止时调用 `dispose_engine()` 关闭连接池。Redis 连接管理器独立运行。
+PostgreSQL 连接由 SQLAlchemy 异步 Engine 统一管理，ORM 基础设施位于 `core/database/connection/db.py`。
+应用启动时自动验证连接，停止时调用 `await dispose_engine()` 关闭连接池。Redis 连接管理器独立运行。
 
 ### PostgreSQL
 
 ```python
 from core.database.connection.db import get_session
 
-with get_session() as session:
-    # 在 session 内执行 ORM 操作
+async with get_session() as session:
+    # 在 session 内执行异步 ORM 操作
     ...
 ```
 
 | 函数 | 说明 |
 |------|------|
-| `get_session()` | 上下文管理器，提供自动提交/回滚的 SQLAlchemy Session |
-| `dispose_engine()` | 释放连接池（由应用 lifespan 自动调用） |
+| `get_session()` | 异步上下文管理器，提供自动提交/回滚的 SQLAlchemy AsyncSession |
+| `dispose_engine()` | 异步释放连接池（由应用 lifespan 自动调用） |
 
 ### Redis
 
@@ -74,7 +74,7 @@ value = client.get("key")
 
 ## DAO 层使用
 
-所有 DAO 位于 `core/database/dao/`，每个文件同时包含 **ORM 模型定义** 和 **DAO 类**，继承自 `BaseDAO`。底层使用 **SQLAlchemy 2.x ORM**，无手写 SQL。
+所有 DAO 位于 `core/database/dao/`，每个文件同时包含 **ORM 模型定义** 和 **DAO 类**，继承自 `BaseDAO`。底层使用 **SQLAlchemy 2.x 异步 ORM**（asyncpg 驱动），无手写 SQL。所有 DAO 方法均为 `async`，需在异步上下文中调用。
 
 项目目录结构：
 
@@ -92,7 +92,7 @@ core/database/
 
 ### 通用 CRUD
 
-以 `UsersDAO` 为例：
+以 `UsersDAO` 为例（所有方法均为 `async`，需在异步上下文中调用）：
 
 ```python
 from core.database.dao.users import UsersDAO
@@ -100,23 +100,23 @@ from core.database.dao.users import UsersDAO
 dao = UsersDAO()
 
 # 查询单条（按 uuid）
-user = dao.find_by_uuid("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+user = await dao.find_by_uuid("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
 
 # 分页查询
-users = dao.find_all(limit=20, offset=0)
+users = await dao.find_all(limit=20, offset=0)
 
 # 插入
-new_user = dao.create({
+new_user = await dao.create({
     "uuid": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
     "nickname": "张三",
     "user_role": "user",
 })
 
 # 更新
-updated = dao.update("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", {"nickname": "李四"})
+updated = await dao.update("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", {"nickname": "李四"})
 
 # 删除
-success = dao.delete("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+success = await dao.delete("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
 ```
 
 ### 特殊 DAO 说明
@@ -159,7 +159,8 @@ success = dao.delete("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
 
 1. **在 `core/database/dao/` 中新建 DAO 文件**，在同一文件内定义 ORM 模型类（继承 `Base`）和 DAO 类（继承 `BaseDAO`，设置 `MODEL` 属性）。
 2. **字段定义与 SQL 迁移文件保持一致**：在 `core/database/migrations/SQL/` 中同步新增迁移文件。
-3. **Session 生命周期**：始终通过 `get_session()` 上下文管理器使用 Session，禁止在函数外持有 Session 引用。
+3. **Session 生命周期**：始终通过 `async with get_session() as session:` 使用 AsyncSession，禁止在函数外持有 Session 引用。
+4. **所有 DAO 方法必须为 `async`**：使用 `await` 调用所有 session 操作（`session.scalars()`、`session.flush()`、`session.refresh()` 等）。
 
 新建 DAO 示例：
 
@@ -184,6 +185,16 @@ class Example(Base):
 
 class ExampleDAO(BaseDAO):
     MODEL = Example
+
+    # 自定义方法示例（必须为 async）
+    async def find_by_custom_field(self, value: str):
+        from sqlalchemy import select
+        from core.database.connection.db import get_session
+        async with get_session() as session:
+            objs = await session.scalars(
+                select(Example).where(Example.uuid == value)
+            )
+            return [self._to_dict(o) for o in objs]
 ```
 
 ---
