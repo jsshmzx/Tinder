@@ -37,10 +37,10 @@ class IllegalRequestsDAO(BaseDAO):
 
     MODEL = IllegalRequest
 
-    def find_by_ip(self, ip: str, limit: int = 100) -> list[dict[str, Any]]:
+    async def find_by_ip(self, ip: str, limit: int = 100) -> list[dict[str, Any]]:
         """查询指定 IP 的所有违规记录。"""
-        with get_session() as session:
-            objs = session.scalars(
+        async with get_session() as session:
+            objs = await session.scalars(
                 select(IllegalRequest)
                 .where(IllegalRequest.ip == ip)
                 .order_by(IllegalRequest.happened_at.desc())
@@ -48,10 +48,10 @@ class IllegalRequestsDAO(BaseDAO):
             )
             return [self._to_dict(o) for o in objs]
 
-    def find_by_user(self, user: str, limit: int = 100) -> list[dict[str, Any]]:
+    async def find_by_user(self, user: str, limit: int = 100) -> list[dict[str, Any]]:
         """查询指定用户的所有违规记录。"""
-        with get_session() as session:
-            objs = session.scalars(
+        async with get_session() as session:
+            objs = await session.scalars(
                 select(IllegalRequest)
                 .where(IllegalRequest.user == user)
                 .order_by(IllegalRequest.happened_at.desc())

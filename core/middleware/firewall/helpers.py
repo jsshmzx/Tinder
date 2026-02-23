@@ -31,7 +31,7 @@ def get_client_ip(request: Request) -> str:
     return "unknown"
 
 
-def resolve_user_from_token(token: str) -> str:
+async def resolve_user_from_token(token: str) -> str:
     """通过 token 查询其所有者 uuid，失败时返回 'unknown'。"""
     try:
         from sqlalchemy import func, or_, select
@@ -39,13 +39,13 @@ def resolve_user_from_token(token: str) -> str:
         from core.database.connection.db import get_session
         from core.database.dao.tokens import Token
 
-        with get_session() as session:
+        async with get_session() as session:
             stmt = select(Token.belong_to).where(
                 Token.uuid == token,
                 or_(Token.expired_at.is_(None), Token.expired_at > func.now()),
                 Token.current_status != "revoked",
             )
-            result = session.scalars(stmt).first()
+            result = (await session.scalars(stmt)).first()
             return result if result else "unknown"
     except Exception:
         return "unknown"
@@ -59,7 +59,7 @@ def extract_token(request: Request) -> str | None:
     return request.query_params.get("token") or None
 
 
-def record_illegal_request(
+async def record_illegal_request(
     user: str,
     attack_type: str,
     path: str,
@@ -80,7 +80,7 @@ def record_illegal_request(
             ip=ip,
             ua=ua,
         )
-        with get_session() as session:
+        async with get_session() as session:
             session.add(record)
     except Exception as exc:
         custom_log("ERROR", f"[Firewall] 写入 illegal_requests 失败: {exc}")

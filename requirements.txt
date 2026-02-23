@@ -3,6 +3,7 @@ uvicorn
 python-dotenv
 pydantic 
 psycopg2-binary 
+asyncpg
 python-multipart
 redis
 sqlalchemy>=2.0

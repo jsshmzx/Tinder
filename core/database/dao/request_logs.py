@@ -52,16 +52,18 @@ class RequestLogsDAO(BaseDAO):
             "request_logs 表不包含 uuid 字段，请使用 delete_by_path"
         )
 
-    def find_by_path(self, request_path: str) -> dict[str, Any] | None:
-        with get_session() as session:
-            obj = session.scalars(
-                select(RequestLog).where(RequestLog.request_path == request_path)
+    async def find_by_path(self, request_path: str) -> dict[str, Any] | None:
+        async with get_session() as session:
+            obj = (
+                await session.scalars(
+                    select(RequestLog).where(RequestLog.request_path == request_path)
+                )
             ).first()
             return self._to_dict(obj) if obj else None
 
-    def upsert_by_path(self, request_path: str) -> dict[str, Any]:
+    async def upsert_by_path(self, request_path: str) -> dict[str, Any]:
         """若记录不存在则插入，存在则将 frequency 加一。"""
-        with get_session() as session:
+        async with get_session() as session:
             stmt = (
                 pg_insert(RequestLog)
                 .values(request_path=request_path, frequency=1)
@@ -70,21 +72,25 @@ class RequestLogsDAO(BaseDAO):
                     set_={"frequency": RequestLog.__table__.c.frequency + 1},
                 )
             )
-            session.execute(stmt)
-            session.flush()
-            obj = session.scalars(
-                select(RequestLog).where(RequestLog.request_path == request_path)
+            await session.execute(stmt)
+            await session.flush()
+            obj = (
+                await session.scalars(
+                    select(RequestLog).where(RequestLog.request_path == request_path)
+                )
             ).first()
             return self._to_dict(obj)
 
-    def delete_by_path(self, request_path: str) -> bool:
-        with get_session() as session:
-            obj = session.scalars(
-                select(RequestLog).where(RequestLog.request_path == request_path)
+    async def delete_by_path(self, request_path: str) -> bool:
+        async with get_session() as session:
+            obj = (
+                await session.scalars(
+                    select(RequestLog).where(RequestLog.request_path == request_path)
+                )
             ).first()
             if obj is None:
                 return False
-            session.delete(obj)
+            await session.delete(obj)
             return True
 
 

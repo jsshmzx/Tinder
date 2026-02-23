@@ -47,8 +47,8 @@ class FirewallMiddleware(BaseHTTPMiddleware):
         # ------------------------------------------------------------------ #
         if is_rate_exceeded(ip):
             attack_type = "rate_limit"
-            user = self._resolve_user(request)
-            record_illegal_request(user, attack_type, path, ip, ua)
+            user = await self._resolve_user(request)
+            await record_illegal_request(user, attack_type, path, ip, ua)
             viol_count = increment_violation(ip)
             if viol_count >= _BAN_THRESHOLD:
                 ban_ip(ip)
@@ -60,8 +60,8 @@ class FirewallMiddleware(BaseHTTPMiddleware):
         # ------------------------------------------------------------------ #
         if ua and _CRAWLER_UA_PATTERNS.search(ua):
             attack_type = "crawler"
-            user = self._resolve_user(request)
-            record_illegal_request(user, attack_type, path, ip, ua)
+            user = await self._resolve_user(request)
+            await record_illegal_request(user, attack_type, path, ip, ua)
             viol_count = increment_violation(ip)
             if viol_count >= _BAN_THRESHOLD:
                 ban_ip(ip)
@@ -79,8 +79,8 @@ class FirewallMiddleware(BaseHTTPMiddleware):
             attack_type = detect_attack(referer)
 
         if attack_type:
-            user = self._resolve_user(request)
-            record_illegal_request(user, attack_type, path, ip, ua)
+            user = await self._resolve_user(request)
+            await record_illegal_request(user, attack_type, path, ip, ua)
             viol_count = increment_violation(ip)
             if viol_count >= _BAN_THRESHOLD:
                 ban_ip(ip)
@@ -97,9 +97,9 @@ class FirewallMiddleware(BaseHTTPMiddleware):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _resolve_user(request: Request) -> str:
+    async def _resolve_user(request: Request) -> str:
         """尝试从请求中解析 token 并返回对应用户，失败时返回 'unknown'。"""
         token = extract_token(request)
         if not token:
             return "unknown"
-        return resolve_user_from_token(token)
+        return await resolve_user_from_token(token)

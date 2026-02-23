@@ -21,8 +21,8 @@ from sqlalchemy.orm import sessionmaker
 
 @pytest.fixture(scope="session")
 def db_engine():
-    """Create a SQLAlchemy engine connected to the test database and ensure
-    all ORM-declared tables exist. Drops all tables when the session ends."""
+    """Create a synchronous SQLAlchemy engine connected to the test database
+    and ensure all ORM-declared tables exist. Drops all tables when the session ends."""
     url = os.environ["DATABASE_URL"]
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
@@ -74,14 +74,23 @@ def redis_client():
 def integration_app(db_engine):
     """A full FastAPI application with FirewallMiddleware and the index router,
     backed by the real test database and Redis (via environment variables)."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
     from core.database.connection import db as db_module
     from core.middleware.firewall.index import FirewallMiddleware
     from modules.index.index import app as index_router
 
-    # Point the global engine at the test database.
-    db_module._engine = db_engine
-    db_module._session_factory = sessionmaker(
-        bind=db_engine, autocommit=False, autoflush=False
+    # Build an async engine pointing at the same test database.
+    async_url = os.environ["DATABASE_URL"]
+    if async_url.startswith("postgresql://"):
+        async_url = async_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif async_url.startswith("postgresql+psycopg2://"):
+        async_url = async_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
+
+    async_engine = create_async_engine(async_url, pool_pre_ping=True)
+    db_module._engine = async_engine
+    db_module._session_factory = async_sessionmaker(
+        bind=async_engine, autocommit=False, autoflush=False, expire_on_commit=False
     )
 
     # Point redis_conn at the test Redis.
