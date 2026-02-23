@@ -2,12 +2,15 @@
 
 Covers:
   * Normal requests are passed through (HTTP 200)
+  * Normal requests are logged in request_logs table
   * XSS pattern in URL path -> HTTP 403
   * SQL injection pattern in Referer header -> HTTP 403
   * Crawler User-Agent -> HTTP 403
   * Banned IP -> HTTP 403
   * Rate-limit (> 20 req/s from same IP) -> HTTP 403
 """
+
+import asyncio
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,6 +35,27 @@ def test_normal_request_passes(integration_client, redis_client):
     _flush_firewall_keys("testclient", redis_client)
     response = integration_client.get("/")
     assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Request log recording
+# ---------------------------------------------------------------------------
+
+def test_normal_request_is_logged_in_request_logs(integration_client, redis_client):
+    print("\n[TEST][Firewall] 正常请求应将主路径写入 request_logs 表")
+    _flush_firewall_keys("testclient", redis_client)
+
+    from core.database.dao.request_logs import RequestLogsDAO
+
+    response = integration_client.get("/")
+    assert response.status_code == 200
+
+    record = asyncio.run(
+        RequestLogsDAO().find_by_path("/")
+    )
+    assert record is not None
+    assert record["request_path"] == "/"
+    assert record["frequency"] >= 1
 
 
 # ---------------------------------------------------------------------------

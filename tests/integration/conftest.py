@@ -31,6 +31,7 @@ def db_engine():
 
     # Import every ORM model so that Base.metadata is fully populated.
     import core.database.dao.illegal_requests  # noqa: F401
+    import core.database.dao.request_logs  # noqa: F401
     import core.database.dao.tokens  # noqa: F401
     import core.database.dao.users  # noqa: F401
 
