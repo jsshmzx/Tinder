@@ -15,6 +15,7 @@ from core.middleware.firewall.helpers import (
     is_banned,
     is_rate_exceeded,
     record_illegal_request,
+    record_request_log,
     resolve_user_from_token,
 )
 
@@ -88,8 +89,9 @@ class FirewallMiddleware(BaseHTTPMiddleware):
             return build_reject_response("请求包含非法内容，已被拦截。")
 
         # ------------------------------------------------------------------ #
-        # 正常请求，放行                                                        #
+        # 正常请求，放行并记录访问路径                                           #
         # ------------------------------------------------------------------ #
+        await record_request_log(path)
         return await call_next(request)
 
     # ------------------------------------------------------------------

@@ -157,3 +157,13 @@ def detect_attack(text: str) -> str | None:
     if _SQLI_PATTERNS.search(text):
         return "sql_injection"
     return None
+
+
+async def record_request_log(path: str) -> None:
+    """将正常请求的主路径（不含查询参数）写入 request_logs 表，失败时仅打印日志不中断流程。"""
+    try:
+        from core.database.dao.request_logs import RequestLogsDAO
+
+        await RequestLogsDAO().upsert_by_path(path)
+    except Exception as exc:
+        custom_log("ERROR", f"[Firewall] 写入 request_logs 失败: {exc}")
