@@ -9,11 +9,14 @@ from core.helper.ContainerCustomLog.index import custom_log
 from core.middleware.firewall.config import (
     _BAN_DURATION,
     _BAN_THRESHOLD,
+    _CMDI_PATTERNS,
     _KEY_BAN,
     _KEY_RATE,
     _KEY_VIOL,
     _MAX_REQUESTS_PER_SECOND,
+    _PATH_TRAVERSAL_PATTERNS,
     _SQLI_PATTERNS,
+    _SSRF_PATTERNS,
     _XSS_PATTERNS,
 )
 
@@ -149,13 +152,23 @@ def build_reject_response(reason: str) -> JSONResponse:
 
 
 def detect_attack(text: str) -> str | None:
-    """检测文本中的 XSS / SQL 注入特征，返回攻击类型字符串或 None。"""
+    """检测文本中的攻击特征，返回攻击类型字符串或 None。
+
+    检测顺序:
+    XSS → SQL 注入 → 路径穿越 → 命令注入 → SSRF
+    """
     if not text:
         return None
     if _XSS_PATTERNS.search(text):
         return "xss"
     if _SQLI_PATTERNS.search(text):
         return "sql_injection"
+    if _PATH_TRAVERSAL_PATTERNS.search(text):
+        return "path_traversal"
+    if _CMDI_PATTERNS.search(text):
+        return "command_injection"
+    if _SSRF_PATTERNS.search(text):
+        return "ssrf"
     return None
 
 
