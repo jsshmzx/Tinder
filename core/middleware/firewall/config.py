@@ -102,7 +102,7 @@ _PATH_TRAVERSAL_PATTERNS = re.compile(
 # ---------------------------------------------------------------------------
 _CMDI_PATTERNS = re.compile(
     r"(;\s*(ls|cat|rm|wget|curl|bash|sh|nc|netcat|python|perl|ruby|php)\b)"
-    r"|(\|\s*(ls|cat|rm|wget|curl|bash|sh|nc|netcat|python|perl)\b)"
+    r"|(\|\s*(ls|cat|rm|wget|curl|bash|sh|nc|netcat|python|perl|ruby|php)\b)"
     r"|(`[^`]*`)"                          # 反引号命令执行
     r"|(\$\([^)]+\))"                      # $() 子命令
     r"|(\$\{[^}]*\})"                      # ${} 变量注入
