@@ -154,7 +154,7 @@ def build_reject_response(reason: str) -> JSONResponse:
 def detect_attack(text: str) -> str | None:
     """检测文本中的攻击特征，返回攻击类型字符串或 None。
 
-    检测顺序（参考雷池 WAF 多引擎检测思路）：
+    检测顺序:
     XSS → SQL 注入 → 路径穿越 → 命令注入 → SSRF
     """
     if not text:
