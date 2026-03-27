@@ -2,17 +2,11 @@
 
 航海家计划后端API服务
 
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-framework-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.x-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-database-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![asyncpg](https://img.shields.io/badge/asyncpg-driver-2E86AB?logo=python&logoColor=white)](https://github.com/MagicStack/asyncpg)
-[![Redis](https://img.shields.io/badge/Redis-in--memory-DC382D?logo=redis&logoColor=white)](https://redis.io/)
-[![Docker](https://img.shields.io/badge/Docker-enabled-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)](https://pytest.org/)
+[![Python Tests](https://github.com/jsshmzx/Tinder/actions/workflows/test.yml/badge.svg)](https://github.com/jsshmzx/Tinder/actions/workflows/test.yml)
+[![Docker Build CI](https://github.com/jsshmzx/Tinder/actions/workflows/docker-build.yml/badge.svg)](https://github.com/jsshmzx/Tinder/actions/workflows/docker-build.yml)
+[![Pylint](https://github.com/jsshmzx/Tinder/actions/workflows/pylint.yml/badge.svg)](https://github.com/jsshmzx/Tinder/actions/workflows/pylint.yml)
+[![CodeQL](https://github.com/jsshmzx/Tinder/actions/workflows/codeql.yml/badge.svg)](https://github.com/jsshmzx/Tinder/actions/workflows/codeql.yml)
 [![License](https://img.shields.io/github/license/jsshmzx/Tinder)](LICENSE)
-[![Last Commit](https://img.shields.io/github/last-commit/jsshmzx/Tinder)](https://github.com/jsshmzx/Tinder/commits)
-[![Stars](https://img.shields.io/github/stars/jsshmzx/Tinder?style=social)](https://github.com/jsshmzx/Tinder/stargazers)
 
 ## 技术栈
 
