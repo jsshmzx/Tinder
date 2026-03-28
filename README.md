@@ -56,6 +56,22 @@ docker build -t tinder .
 docker run -p 1912:1912 tinder
 ```
 
+### Docker Compose 本地开发
+
+```bash
+docker compose up --build
+```
+
+服务将在 `http://localhost:1912` 启动。
+
+首次启动会自动执行数据库迁移（`docker-entrypoint.sh` 中已包含 `python db_migrate.py`）。
+
+停止并移除容器：
+
+```bash
+docker compose down
+```
+
 ## 项目结构
 
 ```
