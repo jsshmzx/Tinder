@@ -35,13 +35,13 @@ REDIS_URL=redis://localhost:6379/0
 
 ## 数据库连接管理
 
-PostgreSQL 连接由 SQLAlchemy 异步 Engine 统一管理，ORM 基础设施位于 `core/database/connection/db.py`。
+PostgreSQL 连接由 SQLAlchemy 异步 Engine 统一管理，ORM 基础设施位于 `core/database/connection/pgsql.py`。
 应用启动时自动验证连接，停止时调用 `await dispose_engine()` 关闭连接池。Redis 连接管理器独立运行。
 
 ### PostgreSQL
 
 ```python
-from core.database.connection.db import get_session
+from core.database.connection.pgsql import get_session
 
 async with get_session() as session:
     # 在 session 内执行异步 ORM 操作
@@ -81,7 +81,7 @@ value = client.get("key")
 ```
 core/database/
 ├── connection/
-│   ├── db.py      # ORM 基础设施：Base、get_session()、dispose_engine()
+│   ├── pgsql.py   # ORM 基础设施：Base、get_session()、dispose_engine()
 │   └── redis.py   # Redis 连接管理
 └── dao/
     ├── base.py    # BaseDAO（通用 CRUD，子类设置 MODEL 即可）
@@ -171,7 +171,7 @@ from sqlalchemy import Integer, Text, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.database.connection.db import Base
+from core.database.connection.pgsql import Base
 from core.database.dao.base import BaseDAO
 
 
@@ -189,7 +189,7 @@ class ExampleDAO(BaseDAO):
     # 自定义方法示例（必须为 async）
     async def find_by_custom_field(self, value: str):
         from sqlalchemy import select
-        from core.database.connection.db import get_session
+        from core.database.connection.pgsql import get_session
         async with get_session() as session:
             objs = await session.scalars(
                 select(Example).where(Example.uuid == value)

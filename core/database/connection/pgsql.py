@@ -2,7 +2,7 @@
 
 典型用法::
 
-    from core.database.connection.db import get_session, dispose_engine
+    from core.database.connection.pgsql import get_session, dispose_engine
 
     async with get_session() as session:
         session.add(obj)

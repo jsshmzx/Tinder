@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.database.connection.db import Base, get_session
+from core.database.connection.pgsql import Base, get_session
 from core.database.dao.base import BaseDAO
 
 

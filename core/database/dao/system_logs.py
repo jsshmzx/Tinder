@@ -6,7 +6,7 @@ from sqlalchemy import Boolean, Integer, Text, func
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
-from core.database.connection.db import Base
+from core.database.connection.pgsql import Base
 from core.database.dao.base import BaseDAO
 
 

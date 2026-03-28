@@ -35,7 +35,7 @@ def db_engine():
     import core.database.dao.tokens  # noqa: F401
     import core.database.dao.users  # noqa: F401
 
-    from core.database.connection.db import Base
+    from core.database.connection.pgsql import Base
 
     Base.metadata.create_all(engine)
 
@@ -78,7 +78,7 @@ def integration_app(db_engine):
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from sqlalchemy.pool import NullPool
 
-    from core.database.connection import db as db_module
+    from core.database.connection import pgsql as db_module
     from core.middleware.firewall.index import FirewallMiddleware
     from modules.index.index import app as index_router
 

@@ -39,7 +39,7 @@ async def resolve_user_from_token(token: str) -> str:
     try:
         from sqlalchemy import func, or_, select
 
-        from core.database.connection.db import get_session
+        from core.database.connection.pgsql import get_session
         from core.database.dao.tokens import Token
 
         async with get_session() as session:
@@ -71,7 +71,7 @@ async def record_illegal_request(
 ) -> None:
     """将违规请求写入 illegal_requests 表，失败时仅打印日志不中断流程。"""
     try:
-        from core.database.connection.db import get_session
+        from core.database.connection.pgsql import get_session
         from core.database.dao.illegal_requests import IllegalRequest
 
         record = IllegalRequest(

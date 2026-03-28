@@ -10,7 +10,7 @@ from typing import Dict, Any
 from core.helper.ContainerCustomLog.index import custom_log
 from core.middleware.firewall.index import FirewallMiddleware
 from core.database.connection.redis import redis_conn
-from core.database.connection.db import dispose_engine, get_session
+from core.database.connection.pgsql import dispose_engine, get_session
 
 # 加载环境变量
 load_dotenv()

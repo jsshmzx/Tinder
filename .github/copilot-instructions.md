@@ -18,7 +18,7 @@ This is **Tinder** — a FastAPI-based backend API service (航海家计划后�
 ├── modules/          # Feature modules (users, index, etc.)
 ├── core/
 │   ├── database/
-│   │   ├── connection/   # db.py (engine/session), redis.py
+│   │   ├── connection/   # pgsql.py (engine/session), redis.py
 │   │   ├── dao/          # DAO classes extending BaseDAO
 │   │   └── migrations/   # SQL migration files
 │   ├── helper/           # Utility helpers (e.g., ContainerCustomLog)
@@ -35,10 +35,10 @@ This is **Tinder** — a FastAPI-based backend API service (航海家计划后�
 ## Database & ORM Conventions
 
 - Use **async SQLAlchemy 2.x** with the **asyncpg** driver at all times.
-- `get_session()` in `core/database/connection/db.py` is an `@asynccontextmanager` that yields an `AsyncSession`. Always use it as `async with get_session() as session:`.
+- `get_session()` in `core/database/connection/pgsql.py` is an `@asynccontextmanager` that yields an `AsyncSession`. Always use it as `async with get_session() as session:`.
 - All DAO methods must be `async`.
 - `dispose_engine()` is also `async` and must be awaited.
-- All ORM models must inherit from `Base` (imported from `core.database.connection.db`).
+- All ORM models must inherit from `Base` (imported from `core.database.connection.pgsql`).
 - Every table must have:
   - An `id SERIAL PRIMARY KEY` column.
   - A `uuid TEXT NOT NULL UNIQUE` column.
