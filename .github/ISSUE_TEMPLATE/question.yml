@@ -1,0 +1,30 @@
+name: Question
+description: 使用咨询、实现讨论或其他未归类问题
+title: "[Question] "
+labels:
+  - question
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: 你的问题
+      description: 请尽量描述完整上下文，方便快速解答。
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 相关上下文
+      description: 相关代码路径、接口、报错信息、尝试过的方法等。
+      placeholder: 例如：server.py 中路由加载顺序与中间件执行顺序的关系
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 自查清单
+      options:
+        - label: 我已阅读 README 与现有文档
+          required: true
+        - label: 我已搜索过现有 issue，未发现重复问题
+          required: true

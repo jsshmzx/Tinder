@@ -1,0 +1,51 @@
+name: Feature Request
+description: 提出新功能或改进建议
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        欢迎提出改进建议！清晰的背景和目标有助于更快评估与落地。
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景与痛点
+      description: 当前遇到了什么问题，为什么需要这个功能。
+      placeholder: 例如：当前日志检索能力不足，排障效率低
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 方案描述
+      description: 请描述你建议的功能行为或接口。
+      placeholder: 例如：新增 /logs/search 接口，支持按时间范围与关键字过滤
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 可选方案
+      description: 你考虑过的其他方案（可选）。
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: 影响范围
+      description: 可能影响的模块、兼容性、迁移成本等。
+      placeholder: 例如：modules/index、core/database/dao/system_logs.py
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 建议的验收条件（可测试、可观察）。
+      placeholder: |
+        - [ ] 支持按关键字检索日志
+        - [ ] 响应时间 P95 < 200ms
+        - [ ] 有对应单元测试

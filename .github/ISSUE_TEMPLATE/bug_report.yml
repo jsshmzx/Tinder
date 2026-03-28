@@ -1,0 +1,82 @@
+name: Bug Report
+description: 报告一个可复现的问题，帮助我们定位和修复
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你的反馈！请尽可能完整填写以下信息，便于我们快速定位问题。
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题描述
+      description: 简要说明你遇到的问题。
+      placeholder: 例如：访问 /docs 时返回 500
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 按步骤描述如何稳定复现。
+      placeholder: |
+        1. 启动服务
+        2. 发送请求到 ...
+        3. 观察到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你期望系统如何表现。
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么（错误信息、堆栈等）。
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本信息
+      description: 请提供提交哈希、分支名或镜像标签。
+      placeholder: 例如：main@a1b2c3d
+
+  - type: textarea
+    id: env
+    attributes:
+      label: 环境信息
+      description: 操作系统、Python 版本、数据库版本、部署方式等。
+      placeholder: |
+        - OS: macOS 14
+        - Python: 3.11
+        - PostgreSQL: 16
+        - Redis: 7
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志/截图
+      description: 粘贴关键日志（请脱敏）或上传截图。
+      render: shell
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 自查清单
+      options:
+        - label: 我已确认该问题在最新代码中仍可复现
+          required: true
+        - label: 我已搜索过现有 issue，未发现重复
+          required: true
