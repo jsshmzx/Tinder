@@ -70,3 +70,7 @@ docker run -p 1912:1912 tinder
 ## API 文档
 
 启动服务后访问 `http://localhost:1912/docs` 查看Swagger文档
+
+## 贡献指南
+
+贡献前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)
