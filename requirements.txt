@@ -10,3 +10,6 @@ sqlalchemy>=2.0
 pytest
 pytest-asyncio
 httpx
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart

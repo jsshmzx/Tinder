@@ -34,6 +34,7 @@ class User(Base):
     views: Mapped[int | None] = mapped_column(Integer, default=0)
     other_info: Mapped[Any | None] = mapped_column(JSONB)
     is_verified: Mapped[bool | None] = mapped_column(Boolean)
+    password: Mapped[str | None] = mapped_column(Text)
 
 
 class UsersDAO(BaseDAO):
