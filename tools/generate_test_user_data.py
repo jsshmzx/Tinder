@@ -18,7 +18,7 @@ load_dotenv()
 
 fake = Faker('zh_CN')
 
-async def generate_users(count: int = 100):
+async def generate_users(count: int = 1000):
     print(f"开始生成 {count} 个测试用户...")
     password_hash = get_password_hash("password123")
     
