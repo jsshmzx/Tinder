@@ -63,7 +63,7 @@ async def generate_users(count: int = 1000):
 
 async def main():
     # 后续还能在此函数中调用其他的测试数据生成器（例如文章、评论、日志等）
-    await generate_users(100)
+    await generate_users(1000)
 
 if __name__ == "__main__":
     asyncio.run(main())
