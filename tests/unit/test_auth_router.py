@@ -31,15 +31,15 @@ def test_login_success_returns_bearer_token(client, monkeypatch):
     hashed_password = get_password_hash(plain_password)
     user = SimpleNamespace(uuid="user-uuid-1", password=hashed_password)
 
-    async def fake_find_by_uuid_or_real_name(session, username):
-        assert username == "alice"
+    async def fake_find_by_username_or_email(session, login_identifier):
+        assert login_identifier == "alice"
         return user
 
     monkeypatch.setattr(auth_router, "get_session", _mock_get_session())
     monkeypatch.setattr(
         auth_router.UsersDAO,
-        "find_by_uuidOrRealName",
-        fake_find_by_uuid_or_real_name,
+        "find_by_username_or_email",
+        fake_find_by_username_or_email,
         raising=False,
     )
     monkeypatch.setattr(auth_router, "create_access_token", lambda subject: "mock-token")
@@ -54,14 +54,14 @@ def test_login_success_returns_bearer_token(client, monkeypatch):
 
 
 def test_login_returns_401_when_user_not_found(client, monkeypatch):
-    async def fake_find_by_uuid_or_real_name(session, username):
+    async def fake_find_by_username_or_email(session, login_identifier):
         return None
 
     monkeypatch.setattr(auth_router, "get_session", _mock_get_session())
     monkeypatch.setattr(
         auth_router.UsersDAO,
-        "find_by_uuidOrRealName",
-        fake_find_by_uuid_or_real_name,
+        "find_by_username_or_email",
+        fake_find_by_username_or_email,
         raising=False,
     )
 
@@ -78,14 +78,14 @@ def test_login_returns_401_when_user_not_found(client, monkeypatch):
 def test_login_returns_401_when_password_invalid(client, monkeypatch):
     user = SimpleNamespace(uuid="user-uuid-2", password=get_password_hash("correct-password"))
 
-    async def fake_find_by_uuid_or_real_name(session, username):
+    async def fake_find_by_username_or_email(session, login_identifier):
         return user
 
     monkeypatch.setattr(auth_router, "get_session", _mock_get_session())
     monkeypatch.setattr(
         auth_router.UsersDAO,
-        "find_by_uuidOrRealName",
-        fake_find_by_uuid_or_real_name,
+        "find_by_username_or_email",
+        fake_find_by_username_or_email,
         raising=False,
     )
 

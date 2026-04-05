@@ -24,7 +24,9 @@ async def test_user(db_session_factory):
 
     user = User(
         uuid=test_uuid,
-        real_name="testuser",
+        username="testuser",
+        email="testuser@example.com",
+        real_name="Test User Real Name",
         nickname="Test User",
         password=hashed_password,
         user_role="user"
@@ -47,7 +49,7 @@ async def test_user(db_session_factory):
 
 def test_login_success_with_real_database(integration_client, test_user):
     """测试使用真实数据库的成功登录。"""
-    print("\n[TEST][AUTH] POST /api/auth/login → 使用真实密码哈希应返回 access_token")
+    print("\n[TEST][AUTH] POST /api/auth/login → 使用用户名应返回 access_token")
 
     response = integration_client.post(
         "/api/auth/login",
@@ -61,13 +63,13 @@ def test_login_success_with_real_database(integration_client, test_user):
     assert len(data["access_token"]) > 0
 
 
-def test_login_with_uuid(integration_client, test_user):
-    """测试使用 uuid 登录。"""
-    print("\n[TEST][AUTH] POST /api/auth/login → 使用 uuid 应成功登录")
+def test_login_with_email(integration_client, test_user):
+    """测试使用 email 登录。"""
+    print("\n[TEST][AUTH] POST /api/auth/login → 使用 email 应成功登录")
 
     response = integration_client.post(
         "/api/auth/login",
-        data={"username": test_user.uuid, "password": "testpassword123"},
+        data={"username": "testuser@example.com", "password": "testpassword123"},
     )
 
     assert response.status_code == 200
@@ -124,7 +126,7 @@ def test_read_users_me_with_valid_token(integration_client, test_user):
     assert response.status_code == 200
     data = response.json()
     assert data["uuid"] == test_user.uuid
-    assert data["real_name"] == "testuser"
+    assert data["real_name"] == "Test User Real Name"
     assert data["role"] == "user"
 
 
