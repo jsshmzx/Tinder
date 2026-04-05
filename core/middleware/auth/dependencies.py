@@ -9,10 +9,10 @@ from core.security.jwt_handler import decode_access_token
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
-    """Get the current user based on the provided JWT token."""
+    """基于提供的 JWT token 获取当前用户信息。"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="无法验证凭据",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
@@ -30,7 +30,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     return user_dict
 
 class RoleChecker:
-    """Check if the user has one of the allowed roles."""
+    """检查用户是否具有所需的角色权限。"""
     def __init__(self, allowed_roles: List[str]):
         self.allowed_roles = allowed_roles
 
@@ -39,6 +39,6 @@ class RoleChecker:
         if user_role not in self.allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Operation not permitted. Required roles: {self.allowed_roles}"
+                detail=f"操作未授权。需要的角色: {self.allowed_roles}"
             )
         return user

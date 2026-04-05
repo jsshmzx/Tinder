@@ -4,22 +4,17 @@ import re
 # 配置常量
 # ---------------------------------------------------------------------------
 
-# 每秒最大请求次数（超过则视为高频攻击）
 _MAX_REQUESTS_PER_SECOND = 20
-
-# IP 违规次数上限（达到后封禁）
 _BAN_THRESHOLD = 10
-
-# IP 封禁时长（秒）：24 小时
-_BAN_DURATION = 86400
+_BAN_DURATION = 86400  # 24 小时
 
 # Redis key 前缀
-_KEY_RATE = "fw:rate:"       # 速率计数  fw:rate:<ip> -> count (TTL 1s)
-_KEY_VIOL = "fw:viol:"       # 违规计数  fw:viol:<ip> -> count (TTL 24h)
-_KEY_BAN = "fw:ban:"         # 封禁标记  fw:ban:<ip>  -> "1"  (TTL 24h)
+_KEY_RATE = "fw:rate:"
+_KEY_VIOL = "fw:viol:"
+_KEY_BAN = "fw:ban:"
 
 # ---------------------------------------------------------------------------
-# 常见爬虫 User-Agent 关键词（不区分大小写）
+# 爬虫检测
 # ---------------------------------------------------------------------------
 _CRAWLER_UA_PATTERNS = re.compile(
     r"(bot|crawler|spider|scraper|curl|wget|python-requests|go-http-client"
@@ -29,8 +24,11 @@ _CRAWLER_UA_PATTERNS = re.compile(
 )
 
 # ---------------------------------------------------------------------------
-# XSS 检测模式
+# 攻击检测模式：XSS / SQL注入 / 路径穿越 / 命令注入 / SSRF
+# 以下正则表达式用于检测常见的Web攻击特征
 # ---------------------------------------------------------------------------
+
+# XSS 攻击检测：脚本标签、事件处理器、危险 JavaScript API
 _XSS_PATTERNS = re.compile(
     r"(<\s*script[\s\S]*?>|<\s*/\s*script\s*>|javascript\s*:|vbscript\s*:"
     r"|data\s*:\s*text/html"
@@ -53,9 +51,7 @@ _XSS_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-# ---------------------------------------------------------------------------
-# SQL 注入检测模式
-# ---------------------------------------------------------------------------
+# SQL 注入检测：SQL关键字组合、注释符、时间盲注、文件操作等
 _SQLI_PATTERNS = re.compile(
     r"(\b(select|insert|update|delete|drop|truncate|alter|create|replace"
     r"|union|exec|execute|xp_|sp_)\b.*\b(from|into|table|where|set)\b"
@@ -82,58 +78,50 @@ _SQLI_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-# ---------------------------------------------------------------------------
-# 路径穿越检测模式
-# ---------------------------------------------------------------------------
+# 路径穿越检测：目录遍历符号及各种编码变体、敏感系统文件访问
 _PATH_TRAVERSAL_PATTERNS = re.compile(
-    r"(\.\./|\.\.\\)"                      # ../ 或 ..\
-    r"|(%2e%2e[%2f%5c])"                   # URL 编码的 ../
-    r"|(%252e%252e%252f)"                  # 双重 URL 编码
-    r"|(\.\.%c0%af|\.\.%c1%9c)"            # UTF-8 过长编码绕过
-    r"|(/etc/(passwd|shadow|hosts|group))"  # Linux 敏感文件
-    r"|(/(proc|sys)/)"                     # Linux 伪文件系统
-    r"|(\\windows\\|\\system32\\|\\boot\.ini)"  # Windows 敏感路径
-    r"|(/\.env|/\.git/|/\.ssh/)",          # 配置文件泄露
+    r"(\.\./|\.\.\\)"
+    r"|(%2e%2e[%2f%5c])"
+    r"|(%252e%252e%252f)"
+    r"|(\.\.%c0%af|\.\.%c1%9c)"
+    r"|(/etc/(passwd|shadow|hosts|group))"
+    r"|(/(proc|sys)/)"
+    r"|(\\windows\\|\\system32\\|\\boot\.ini)"
+    r"|(/\.env|/\.git/|/\.ssh/)",
     re.IGNORECASE,
 )
 
-# ---------------------------------------------------------------------------
-# 命令注入检测模式
-# ---------------------------------------------------------------------------
+# 命令注入检测：Shell元字符、命令分隔符、子命令执行、危险函数
 _CMDI_PATTERNS = re.compile(
     r"(;\s*(ls|cat|rm|wget|curl|bash|sh|nc|netcat|python|perl|ruby|php)\b)"
     r"|(\|\s*(ls|cat|rm|wget|curl|bash|sh|nc|netcat|python|perl|ruby|php)\b)"
-    r"|(`[^`]*`)"                          # 反引号命令执行
-    r"|(\$\([^)]+\))"                      # $() 子命令
-    r"|(\$\{[^}]*\})"                      # ${} 变量注入
+    r"|(`[^`]*`)"
+    r"|(\$\([^)]+\))"
+    r"|(\$\{[^}]*\})"
     r"|(\b(eval|exec|system|passthru|popen|proc_open|shell_exec)\s*\()"
-    r"|(\|{2}\s*(rm|cat|wget|curl)\b)"     # || 链式命令
-    r"|(&{2}\s*(rm|cat|wget|curl)\b)"      # && 链式命令
+    r"|(\|{2}\s*(rm|cat|wget|curl)\b)"
+    r"|(&{2}\s*(rm|cat|wget|curl)\b)"
     r"|(\b(chmod|chown|chgrp|mkfs|dd|fdisk)\s)"
     r"|(/bin/(sh|bash|dash|zsh|csh)\b)"
-    r"|(\\x[0-9a-f]{2}.*\\x[0-9a-f]{2})", # Hex 编码的 shell payload
+    r"|(\\x[0-9a-f]{2}.*\\x[0-9a-f]{2})",
     re.IGNORECASE,
 )
 
-# ---------------------------------------------------------------------------
-# SSRF 检测模式
-# ---------------------------------------------------------------------------
+# SSRF 检测：内网IP、本地回环、云厂商元数据端点、危险协议
 _SSRF_PATTERNS = re.compile(
     r"(https?://(127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+))"
-    r"|(https?://0x[0-9a-f]+)"            # 十六进制 IP
-    r"|(https?://0[0-7]+\.)"              # 八进制 IP
+    r"|(https?://0x[0-9a-f]+)"
+    r"|(https?://0[0-7]+\.)"
     r"|(https?://localhost)"
-    r"|(https?://\[::1?\])"               # IPv6 回环
-    r"|(https?://metadata\.google)"       # 云厂商元数据服务
-    r"|(https?://169\.254\.169\.254)"     # AWS/GCP 元数据端点
-    r"|(https?://100\.100\.100\.200)"     # 阿里云元数据端点
-    r"|(\bgopher://|\bdict://|\bfile://|\bftp://)", # 危险协议
+    r"|(https?://\[::1?\])"
+    r"|(https?://metadata\.google)"
+    r"|(https?://169\.254\.169\.254)"
+    r"|(https?://100\.100\.100\.200)"
+    r"|(\bgopher://|\bdict://|\bfile://|\bftp://)",
     re.IGNORECASE,
 )
 
-# ---------------------------------------------------------------------------
 # 需要额外检查的请求头列表
-# ---------------------------------------------------------------------------
 _INSPECTED_HEADERS = [
     "Referer",
     "X-Forwarded-Host",

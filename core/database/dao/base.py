@@ -35,7 +35,11 @@ class BaseDAO:
 
     @staticmethod
     def _to_dict(obj) -> dict[str, Any]:
-        """将 ORM 实例转换为以数据库列名为键的字典。"""
+        """将 ORM 实例转换为字典。
+
+        使用 SQLAlchemy 的 __mapper__.column_attrs 获取所有列属性，
+        确保字典的键为数据库列名而非模型属性名。
+        """
         if obj is None:
             return {}
         return {
@@ -45,7 +49,11 @@ class BaseDAO:
 
     @classmethod
     def _data_to_kwargs(cls, data: dict[str, Any]) -> dict[str, Any]:
-        """将数据库列名字典转换为 ORM 模型属性名字典（处理列名与属性名不同的情况）。"""
+        """将数据字典的列名转换为模型属性名。
+
+        处理数据库列名与 ORM 模型属性名不一致的情况（如列名为 snake_case，
+        属性名可能为 camelCase）。
+        """
         col_to_attr = {
             col_prop.columns[0].name: col_prop.key
             for col_prop in cls.MODEL.__mapper__.column_attrs

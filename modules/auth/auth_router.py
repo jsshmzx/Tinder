@@ -13,20 +13,20 @@ router = APIRouter()
 
 @router.post("/login", response_model=dict[str, Any])
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    """Login and get a JWT token."""
+    """用户登录并获取 JWT token。"""
     async with get_session() as session:
         user = await UsersDAO.find_by_uuidOrRealName(session, form_data.username)
         if not user or not user.password:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect username or password",
+                detail="用户名或密码错误",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
         if not verify_password(form_data.password, user.password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect username or password",
+                detail="用户名或密码错误",
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
@@ -34,7 +34,6 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me", response_model=dict[str, Any])
-# 这是个待开发功能，未来可能废弃
 async def read_users_me(current_user: dict = Depends(get_current_user)):
-    """Get currently logged-in user information."""
+    """获取当前登录用户信息。"""
     return {"uuid": current_user.get("uuid"), "real_name": current_user.get("real_name"), "role": current_user.get("user_role")}
