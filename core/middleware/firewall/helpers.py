@@ -90,14 +90,17 @@ async def record_illegal_request(
 
 
 def increment_violation(ip: str) -> int:
-    """在 Redis 中累加 IP 违规计数，返回当前计数值。"""
+    """在 Redis 中累加 IP 违规计数，返回当前计数值。
+
+    每次递增时刷新过期时间为 24h，实现滑动窗口机制：
+    确保违规计数在最后一次违规后的 24 小时内有效。
+    """
     try:
         client = redis_conn.get_client()
         if client is None:
             return 0
         key = f"{_KEY_VIOL}{ip}"
         count = client.incr(key)
-        # 每次递增时刷新过期时间为 24h，保证封禁窗口滑动
         client.expire(key, _BAN_DURATION)
         return count
     except Exception as exc:

@@ -10,7 +10,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 def create_access_token(subject: str | int, expires_delta: timedelta | None = None) -> str:
-    """Create a JSON Web Token for the given subject."""
+    """为指定的主体创建 JSON Web Token。"""
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
@@ -21,7 +21,7 @@ def create_access_token(subject: str | int, expires_delta: timedelta | None = No
     return encoded_jwt
 
 def decode_access_token(token: str) -> dict[str, Any] | None:
-    """Decode a JSON Web Token."""
+    """解码 JSON Web Token。"""
     try:
         decoded_token = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return decoded_token
