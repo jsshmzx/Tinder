@@ -15,4 +15,4 @@ passlib[bcrypt]
 python-multipart
 greenlet
 faker
-bcrypt
+bcrypt==4.0.1

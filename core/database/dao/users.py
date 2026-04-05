@@ -3,9 +3,10 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Integer, Text, func
+from sqlalchemy import Boolean, Integer, Text, func, select, or_
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database.connection.pgsql import Base
 from core.database.dao.base import BaseDAO
@@ -41,3 +42,13 @@ class UsersDAO(BaseDAO):
     """users 表的数据访问对象。"""
 
     MODEL = User
+
+    @staticmethod
+    async def find_by_uuidOrRealName(session: AsyncSession, username: str) -> User | None:
+        """根据 uuid 或 real_name 查询用户，返回 User ORM 对象或 None。"""
+        result = await session.scalars(
+            select(User).where(
+                or_(User.uuid == username, User.real_name == username)
+            )
+        )
+        return result.first()

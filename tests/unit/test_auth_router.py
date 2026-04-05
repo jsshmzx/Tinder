@@ -71,7 +71,7 @@ def test_login_returns_401_when_user_not_found(client, monkeypatch):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Incorrect username or password"
+    assert response.json()["detail"] == "用户名或密码错误"
     assert response.headers["www-authenticate"] == "Bearer"
 
 
@@ -95,7 +95,7 @@ def test_login_returns_401_when_password_invalid(client, monkeypatch):
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Incorrect username or password"
+    assert response.json()["detail"] == "用户名或密码错误"
     assert response.headers["www-authenticate"] == "Bearer"
 
 
