@@ -15,4 +15,4 @@ passlib[bcrypt]
 python-multipart
 greenlet
 faker
-bycrypt
+bcrypt
