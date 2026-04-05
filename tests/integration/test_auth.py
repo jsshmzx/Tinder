@@ -13,7 +13,7 @@ from core.database.dao.users import UsersDAO
 
 
 @pytest.fixture
-async def test_user(db_session_factory):
+def test_user(db_session_factory):
     """创建测试用户并在测试结束后清理。"""
     session = db_session_factory()
 
