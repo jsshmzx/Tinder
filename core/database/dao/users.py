@@ -19,6 +19,8 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     uuid: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    username: Mapped[str | None] = mapped_column(Text, unique=True)
+    email: Mapped[str | None] = mapped_column(Text, unique=True)
     avatar_url: Mapped[str | None] = mapped_column(Text)
     nickname: Mapped[str | None] = mapped_column(Text)
     real_name: Mapped[str | None] = mapped_column(Text)
@@ -44,11 +46,11 @@ class UsersDAO(BaseDAO):
     MODEL = User
 
     @staticmethod
-    async def find_by_uuidOrRealName(session: AsyncSession, username: str) -> User | None:
-        """根据 uuid 或 real_name 查询用户，返回 User ORM 对象或 None。"""
+    async def find_by_username_or_email(session: AsyncSession, login_identifier: str) -> User | None:
+        """根据 username 或 email 查询用户，返回 User ORM 对象或 None。"""
         result = await session.scalars(
             select(User).where(
-                or_(User.uuid == username, User.real_name == username)
+                or_(User.username == login_identifier, User.email == login_identifier)
             )
         )
         return result.first()

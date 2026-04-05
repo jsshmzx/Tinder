@@ -15,7 +15,7 @@ router = APIRouter()
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     """用户登录并获取 JWT token。"""
     async with get_session() as session:
-        user = await UsersDAO.find_by_uuidOrRealName(session, form_data.username)
+        user = await UsersDAO.find_by_username_or_email(session, form_data.username)
         if not user or not user.password:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
