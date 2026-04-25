@@ -14,4 +14,4 @@ python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 greenlet==3.4.0
 faker==40.15.0
-bcrypt==4.3.0
+bcrypt==5.0.0
