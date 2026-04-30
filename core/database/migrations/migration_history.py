@@ -18,5 +18,6 @@ migration_history =[
     "initial_tokens.sql",
     "initial_illegal_requests.sql",
     "alter_users_add_username_email.sql",
-    "alter_users_add_password.sql"
+    "alter_users_add_password.sql",
+    "initial_register_questions.sql",
 ]
