@@ -165,7 +165,7 @@ async def get_register_questions(request: Request):
     # 存储完整题目数据（含答案），供校验时使用
     sheet_data = {
         "questions": [{"uuid": q["uuid"], "question": q["question"]} for q in questions],
-        "answers": {q["uuid"]: q["answer"].strip().lower() for q in questions},
+        "answers": {q["uuid"]: _normalize_answer(q["answer"]) for q in questions},
         "issued_ip": client_ip,
     }
 
@@ -303,7 +303,7 @@ async def register_user(body: RegisterRequest, request: Request):
     correct_count = 0
     for item in body.answers:
         expected = correct_answers.get(item.question_uuid)
-        if expected is not None and item.answer.strip().lower() == expected:
+        if expected is not None and _normalize_answer(item.answer) == expected:
             correct_count += 1
 
     custom_log(
@@ -313,6 +313,7 @@ async def register_user(body: RegisterRequest, request: Request):
     )
 
     if correct_count < _CORRECT_THRESHOLD:
+        # sheet_attempts 已在步骤 3 之后递增，所以此处加 1 反映本次消耗后的最新值
         remaining = _MAX_SHEET_ATTEMPTS - (sheet_attempts + 1)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
