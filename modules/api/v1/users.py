@@ -97,6 +97,11 @@ def _today_str() -> str:
     return date.today().isoformat()
 
 
+def _normalize_answer(text: str) -> str:
+    """统一答案格式：去除首尾空白并转换为小写，用于答案存储和校验时的一致比较。"""
+    return text.strip().lower()
+
+
 def _redis_get_int(client, key: str) -> int:
     """安全地从 Redis 获取整数值，键不存在或出错时返回 0。"""
     try:

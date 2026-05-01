@@ -20,7 +20,7 @@ class RegisterQuestions(Base):
     uuid: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
-    created_by: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(Text)  # 创建者 uuid 或用户名（可选）
     # 数据库列名为 question_level，属性名对应映射
     question_level: Mapped[str | None] = mapped_column("question_level", Text)
     question_type: Mapped[str | None] = mapped_column(Text)
