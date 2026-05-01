@@ -151,6 +151,14 @@ success = await dao.delete("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
 | `find_by_belong_to(belong_to)` | 查询指定用户的所有 token |
 | `find_active_by_belong_to(belong_to)` | 查询指定用户的所有未过期 token |
 
+#### `RegisterQuestionsDAO`
+
+在基础 CRUD 之外额外提供：
+
+| 方法 | 说明 |
+|------|------|
+| `find_random_active(count=5)` | 从 `current_status='active'` 的题目中随机抽取 `count` 道，返回含 `uuid`、`question`、`answer` 的字典列表 |
+
 ---
 
 ## 开发规范
@@ -222,6 +230,48 @@ class ExampleDAO(BaseDAO):
 | `system_reports.py` | `SystemReport` | `system_reports` | 系统报告 |
 | `illegal_requests.py` | `IllegalRequest` | `illegal_requests` | 违规请求记录 |
 | `register_questions.py` | `RegisterQuestions` | `register_questions` | 注册问题记录 |
+
+---
+
+## API 端点
+
+### 用户注册（`modules/api/v1/users.py`）
+
+#### `GET /api/v1/users/register/questions`
+从 `register_questions` 表（`current_status='active'`）中随机抽取 5 道题目，生成一张问题表并存入 Redis（TTL 24 小时）。
+**返回：** `sheet_id`（问题表唯一标识）和 5 道题目（不含答案）。
+每个 IP 每天最多获取 4 张问题表（初始 1 张 + 换题 3 次）。
+
+#### `POST /api/v1/users/register`
+注册接口，需携带以下字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `nickname` | string | 昵称（1–50 字符） |
+| `real_name` | string | 真实姓名（1–50 字符） |
+| `classtype` | `"high-school"` \| `"university"` | 学段 |
+| `class` | string | 班级（1–50 字符） |
+| `sheet_id` | string | 问题表 ID |
+| `answers` | `[{question_uuid, answer}]` | 5 道题的答案列表 |
+
+校验流程：
+1. IP 当日注册尝试次数 ≤ 10
+2. `real_name` 当日注册尝试次数 ≤ 3
+3. 问题表存在且尝试次数 ≤ 3
+4. 至少答对 3 道题（答案大小写不敏感）
+5. 数据库中不存在相同 `real_name + class` 的学生
+
+通过后写入用户信息（`user_role=normal-user`，`is_verified=false`，`current_status=normal`）并返回 JWT token。
+
+### Redis Key 规范（注册模块）
+
+| Key 格式 | 用途 | TTL |
+|----------|------|-----|
+| `reg:qsheet:{sheet_id}` | 问题表数据（含答案，仅服务端使用） | 24h |
+| `reg:qsheet_atm:{sheet_id}` | 该问题表的答题尝试次数 | 24h |
+| `reg:ip_atm:{ip}:{date}` | IP 当日注册尝试次数 | 24h |
+| `reg:name_atm:{name_hex}:{date}` | 同名用户当日注册尝试次数 | 24h |
+| `reg:ip_sheets:{ip}:{date}` | IP 当日获取问题表次数 | 24h |
 
 ---
 
