@@ -81,7 +81,7 @@ def integration_app(db_engine):
     from core.database.connection import pgsql as db_module
     from core.middleware.firewall.index import FirewallMiddleware
     from modules.index.index import app as index_router
-    from modules.auth.auth_router import router as auth_router
+    from modules.api.v1.router import router as api_v1_router
 
     # Build an async engine pointing at the same test database.
     async_url = os.environ["DATABASE_URL"]
@@ -110,7 +110,7 @@ def integration_app(db_engine):
                        allow_headers=["*"])
     app.add_middleware(FirewallMiddleware)
     app.include_router(index_router)
-    app.include_router(auth_router, prefix="/api/auth")
+    app.include_router(api_v1_router, prefix="/api/v1")
     return app
 
 
