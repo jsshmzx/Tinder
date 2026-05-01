@@ -54,7 +54,7 @@ app.add_middleware(
 app.add_middleware(FirewallMiddleware)
 # 导入模块
 from modules.index.index import app as index_router
-from modules.api.v1 import router as api_v1_router
+from modules.api.v1.router import router as api_v1_router
 # 导入路由
 app.include_router(index_router)
 app.include_router(api_v1_router, prefix="/api/v1")
