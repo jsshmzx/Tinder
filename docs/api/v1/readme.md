@@ -231,7 +231,7 @@
 | `400 Bad Request` | 问题表不存在或已过期 |
 | `400 Bad Request` | 问题表尝试次数已达上限（3 次） |
 | `400 Bad Request` | 答对题目数不足 3 道 |
-| `409 Conflict` | 相同姓名 + 班级的学生已存在 |
+| `409 Conflict` | 相同真实姓名（`real_name`）+ 班级的学生已存在 |
 | `422 Unprocessable Entity` | 请求体字段格式错误（如 classtype 非法） |
 | `429 Too Many Requests` | IP 今日注册尝试次数已达上限（10 次） |
 | `429 Too Many Requests` | 该姓名今日注册尝试次数已达上限（3 次） |
