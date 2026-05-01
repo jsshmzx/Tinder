@@ -4,12 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 
 from core.database.connection.pgsql import get_session
-from core.database.dao.users import UsersDAO, User
-from core.security.hash import get_password_hash, verify_password
+from core.database.dao.users import UsersDAO
+from core.security.hash import verify_password
 from core.security.jwt_handler import create_access_token
 from core.middleware.auth.dependencies import get_current_user
 
-router = APIRouter()
+router = APIRouter(prefix="/auth", tags=["Auth v1"])
+
 
 @router.post("/login", response_model=dict[str, Any])
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
@@ -33,7 +34,12 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         access_token = create_access_token(subject=user.uuid)
         return {"access_token": access_token, "token_type": "bearer"}
 
+
 @router.get("/me", response_model=dict[str, Any])
 async def read_users_me(current_user: dict = Depends(get_current_user)):
     """获取当前登录用户信息。"""
-    return {"uuid": current_user.get("uuid"), "real_name": current_user.get("real_name"), "role": current_user.get("user_role")}
+    return {
+        "uuid": current_user.get("uuid"),
+        "real_name": current_user.get("real_name"),
+        "role": current_user.get("user_role"),
+    }

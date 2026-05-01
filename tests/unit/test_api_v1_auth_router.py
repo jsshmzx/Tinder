@@ -1,4 +1,4 @@
-"""Unit tests — modules.auth.auth_router (no database, no Redis)."""
+"""Unit tests — modules.api.v1.auth (no database, no Redis)."""
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -8,13 +8,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from core.security.hash import get_password_hash
-from modules.auth import auth_router
+from modules.api.v1 import auth as auth_v1
 
 
 @pytest.fixture()
 def client() -> TestClient:
     app = FastAPI()
-    app.include_router(auth_router.router, prefix="/api/auth")
+    app.include_router(auth_v1.router, prefix="/api/v1")
     return TestClient(app)
 
 
@@ -35,38 +35,38 @@ def test_login_success_returns_bearer_token(client, monkeypatch):
         assert login_identifier == "alice"
         return user
 
-    monkeypatch.setattr(auth_router, "get_session", _mock_get_session())
+    monkeypatch.setattr(auth_v1, "get_session", _mock_get_session())
     monkeypatch.setattr(
-        auth_router.UsersDAO,
+        auth_v1.UsersDAO,
         "find_by_username_or_email",
         fake_find_by_username_or_email,
         raising=False,
     )
-    monkeypatch.setattr(auth_router, "create_access_token", lambda subject: "mock-token")
+    monkeypatch.setattr(auth_v1, "create_access_token", lambda subject: "mock-token-v1")
 
     response = client.post(
-        "/api/auth/login",
+        "/api/v1/auth/login",
         data={"username": "alice", "password": plain_password},
     )
 
     assert response.status_code == 200
-    assert response.json() == {"access_token": "mock-token", "token_type": "bearer"}
+    assert response.json() == {"access_token": "mock-token-v1", "token_type": "bearer"}
 
 
 def test_login_returns_401_when_user_not_found(client, monkeypatch):
     async def fake_find_by_username_or_email(session, login_identifier):
         return None
 
-    monkeypatch.setattr(auth_router, "get_session", _mock_get_session())
+    monkeypatch.setattr(auth_v1, "get_session", _mock_get_session())
     monkeypatch.setattr(
-        auth_router.UsersDAO,
+        auth_v1.UsersDAO,
         "find_by_username_or_email",
         fake_find_by_username_or_email,
         raising=False,
     )
 
     response = client.post(
-        "/api/auth/login",
+        "/api/v1/auth/login",
         data={"username": "unknown", "password": "whatever"},
     )
 
@@ -81,16 +81,16 @@ def test_login_returns_401_when_password_invalid(client, monkeypatch):
     async def fake_find_by_username_or_email(session, login_identifier):
         return user
 
-    monkeypatch.setattr(auth_router, "get_session", _mock_get_session())
+    monkeypatch.setattr(auth_v1, "get_session", _mock_get_session())
     monkeypatch.setattr(
-        auth_router.UsersDAO,
+        auth_v1.UsersDAO,
         "find_by_username_or_email",
         fake_find_by_username_or_email,
         raising=False,
     )
 
     response = client.post(
-        "/api/auth/login",
+        "/api/v1/auth/login",
         data={"username": "bob", "password": "wrong-password"},
     )
 
@@ -101,13 +101,13 @@ def test_login_returns_401_when_password_invalid(client, monkeypatch):
 
 def test_read_users_me_returns_current_user_payload(client):
     app = client.app
-    app.dependency_overrides[auth_router.get_current_user] = lambda: {
+    app.dependency_overrides[auth_v1.get_current_user] = lambda: {
         "uuid": "u-1",
         "real_name": "Alice",
         "user_role": "admin",
     }
 
-    response = client.get("/api/auth/me", headers={"Authorization": "Bearer token"})
+    response = client.get("/api/v1/auth/me", headers={"Authorization": "Bearer token"})
 
     assert response.status_code == 200
     assert response.json() == {"uuid": "u-1", "real_name": "Alice", "role": "admin"}

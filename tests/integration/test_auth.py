@@ -1,8 +1,8 @@
 """Integration tests — Auth endpoints with real PostgreSQL + Redis backend.
 
 Covers:
-  * POST /api/auth/login with real database and password hashing
-  * GET /api/auth/me with real JWT token validation
+  * POST /api/v1/auth/login with real database and password hashing
+  * GET /api/v1/auth/me with real JWT token validation
 """
 
 import pytest
@@ -44,15 +44,15 @@ def test_user(db_session_factory):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/auth/login
+# POST /api/v1/auth/login
 # ---------------------------------------------------------------------------
 
 def test_login_success_with_real_database(integration_client, test_user):
     """测试使用真实数据库的成功登录。"""
-    print("\n[TEST][AUTH] POST /api/auth/login → 使用用户名应返回 access_token")
+    print("\n[TEST][AUTH] POST /api/v1/auth/login → 使用用户名应返回 access_token")
 
     response = integration_client.post(
-        "/api/auth/login",
+        "/api/v1/auth/login",
         data={"username": "testuser", "password": "testpassword123"},
     )
 
@@ -65,10 +65,10 @@ def test_login_success_with_real_database(integration_client, test_user):
 
 def test_login_with_email(integration_client, test_user):
     """测试使用 email 登录。"""
-    print("\n[TEST][AUTH] POST /api/auth/login → 使用 email 应成功登录")
+    print("\n[TEST][AUTH] POST /api/v1/auth/login → 使用 email 应成功登录")
 
     response = integration_client.post(
-        "/api/auth/login",
+        "/api/v1/auth/login",
         data={"username": "testuser@example.com", "password": "testpassword123"},
     )
 
@@ -78,10 +78,10 @@ def test_login_with_email(integration_client, test_user):
 
 def test_login_fails_with_wrong_password(integration_client, test_user):
     """测试错误密码登录失败。"""
-    print("\n[TEST][AUTH] POST /api/auth/login → 错误密码应返回 401")
+    print("\n[TEST][AUTH] POST /api/v1/auth/login → 错误密码应返回 401")
 
     response = integration_client.post(
-        "/api/auth/login",
+        "/api/v1/auth/login",
         data={"username": "testuser", "password": "wrongpassword"},
     )
 
@@ -91,10 +91,10 @@ def test_login_fails_with_wrong_password(integration_client, test_user):
 
 def test_login_fails_with_nonexistent_user(integration_client):
     """测试不存在的用户登录失败。"""
-    print("\n[TEST][AUTH] POST /api/auth/login → 不存在的用户应返回 401")
+    print("\n[TEST][AUTH] POST /api/v1/auth/login → 不存在的用户应返回 401")
 
     response = integration_client.post(
-        "/api/auth/login",
+        "/api/v1/auth/login",
         data={"username": "nonexistentuser", "password": "anypassword"},
     )
 
@@ -103,23 +103,23 @@ def test_login_fails_with_nonexistent_user(integration_client):
 
 
 # ---------------------------------------------------------------------------
-# GET /api/auth/me
+# GET /api/v1/auth/me
 # ---------------------------------------------------------------------------
 
 def test_read_users_me_with_valid_token(integration_client, test_user):
     """测试使用有效 token 获取当前用户信息。"""
-    print("\n[TEST][AUTH] GET /api/auth/me → 有效 token 应返回用户信息")
+    print("\n[TEST][AUTH] GET /api/v1/auth/me → 有效 token 应返回用户信息")
 
     # 先登录获取 token
     login_response = integration_client.post(
-        "/api/auth/login",
+        "/api/v1/auth/login",
         data={"username": "testuser", "password": "testpassword123"},
     )
     token = login_response.json()["access_token"]
 
     # 使用 token 获取用户信息
     response = integration_client.get(
-        "/api/auth/me",
+        "/api/v1/auth/me",
         headers={"Authorization": f"Bearer {token}"},
     )
 
@@ -132,19 +132,19 @@ def test_read_users_me_with_valid_token(integration_client, test_user):
 
 def test_read_users_me_fails_without_token(integration_client):
     """测试没有 token 时无法获取用户信息。"""
-    print("\n[TEST][AUTH] GET /api/auth/me → 无 token 应返回 401")
+    print("\n[TEST][AUTH] GET /api/v1/auth/me → 无 token 应返回 401")
 
-    response = integration_client.get("/api/auth/me")
+    response = integration_client.get("/api/v1/auth/me")
 
     assert response.status_code == 401
 
 
 def test_read_users_me_fails_with_invalid_token(integration_client):
     """测试使用无效 token 无法获取用户信息。"""
-    print("\n[TEST][AUTH] GET /api/auth/me → 无效 token 应返回 401")
+    print("\n[TEST][AUTH] GET /api/v1/auth/me → 无效 token 应返回 401")
 
     response = integration_client.get(
-        "/api/auth/me",
+        "/api/v1/auth/me",
         headers={"Authorization": "Bearer invalid_token_12345"},
     )
 
