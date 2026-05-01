@@ -221,6 +221,7 @@ class ExampleDAO(BaseDAO):
 | `system_logs.py` | `SystemLog` | `system_logs` | 系统日志 |
 | `system_reports.py` | `SystemReport` | `system_reports` | 系统报告 |
 | `illegal_requests.py` | `IllegalRequest` | `illegal_requests` | 违规请求记录 |
+| `register_questions.py` | `RegisterQuestions` | `register_questions` | 注册问题记录 |
 
 ---
 
