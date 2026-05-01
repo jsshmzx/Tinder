@@ -4,8 +4,8 @@ CREATE TABLE register_questions (
     question TEXT NOT NULL,
     answer TEXT NOT NULL,
     created_by TEXT,
-    level TEXT,
+    question_level TEXT,
     question_type TEXT,
     current_status TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
