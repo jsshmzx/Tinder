@@ -151,6 +151,14 @@ success = await dao.delete("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
 | `find_by_belong_to(belong_to)` | 查询指定用户的所有 token |
 | `find_active_by_belong_to(belong_to)` | 查询指定用户的所有未过期 token |
 
+#### `RegisterQuestionsDAO`
+
+在基础 CRUD 之外额外提供：
+
+| 方法 | 说明 |
+|------|------|
+| `find_random_active(count=5)` | 从 `current_status='active'` 的题目中随机抽取 `count` 道，返回含 `uuid`、`question`、`answer` 的字典列表 |
+
 ---
 
 ## 开发规范
@@ -229,4 +237,8 @@ class ExampleDAO(BaseDAO):
 
 - `database-schema.excalidraw` – 数据库表结构 ER 图（可在 [excalidraw.com](https://excalidraw.com) 打开）
 - `../db-migration.excalidraw` – 数据库迁移流程图
+
+---
+
+> API 接口文档请参阅 [`../api/v1/readme.md`](../api/v1/readme.md)。
 

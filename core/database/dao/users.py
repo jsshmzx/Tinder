@@ -54,3 +54,17 @@ class UsersDAO(BaseDAO):
             )
         )
         return result.first()
+
+    @staticmethod
+    async def find_duplicate_student(session: AsyncSession, real_name: str, class_: str) -> User | None:
+        """检查是否存在同名同班级的学生，存在则返回该用户，否则返回 None。
+
+        用于注册时防止重复注册。
+        """
+        result = await session.scalars(
+            select(User).where(
+                User.real_name == real_name,
+                User.class_ == class_,
+            )
+        )
+        return result.first()
