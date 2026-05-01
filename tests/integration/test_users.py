@@ -359,7 +359,7 @@ def test_register_fails_with_nonexistent_sheet(integration_client, active_questi
 
 
 def test_register_fails_on_duplicate_student(
-    integration_client, active_questions, registered_user_cleanup
+    integration_client, active_questions, registered_user_cleanup, redis_client
 ):
     """相同 real_name + class 重复注册时应返回 409。"""
     print("\n[TEST][Users] POST /api/v1/users/register → 重复学生应返回 409")
@@ -382,10 +382,10 @@ def test_register_fails_on_duplicate_student(
     assert resp1.status_code == 201
     registered_user_cleanup.append(resp1.json()["user"]["uuid"])
 
+    # 重置注册相关限速计数器，使第二次请求能顺利到达重复检查步骤
+    _flush_reg_keys(redis_client)
+
     # 第二次注册（相同 real_name + class）
-    _flush_reg_keys(integration_client.app.state.__dict__.get("redis", None) or __import__("redis").from_url(
-        __import__("os").environ["REDIS_URL"], decode_responses=True
-    ))
     sheet_id2, questions2 = _get_sheet(integration_client, active_questions)
     answers2 = _make_correct_answers(sheet_id2, questions2, active_questions)
 
