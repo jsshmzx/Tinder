@@ -15,7 +15,7 @@
 - [Users — 用户](#users--用户)
   - [GET /users/register/questions](#get-usersregisterquestions)
   - [POST /users/register](#post-usersregister)
-  - [PATCH /users/me/password](#patch-usersmepasword)
+  - [PATCH /users/me/password](#patch-usersmepassword)
   - [PATCH /users/me/profile](#patch-usersmeprofile)
 - [错误码一览](#错误码一览)
 - [注册模块 Redis Key 规范](#注册模块-redis-key-规范)
@@ -378,9 +378,9 @@
 | `reg:ip_atm:{ip}:{YYYY-MM-DD}` | integer | IP 当日注册尝试次数 | 24h |
 | `reg:name_atm:{name_hex}:{YYYY-MM-DD}` | integer | 同名用户当日注册尝试次数（`name_hex` 为 UTF-8 十六进制编码） | 24h |
 | `reg:ip_sheets:{ip}:{YYYY-MM-DD}` | integer | IP 当日问题表获取次数 | 24h |
-| `user:pwd_chg:{uuid_hex}:{YYYY-MM-DD}` | integer | 用户当日修改密码尝试次数（`uuid_hex` 为 UUID 字符串的 UTF-8 十六进制编码） | 24h |
+| `user:pwd_chg:{user_uuid}:{YYYY-MM-DD}` | integer | 用户当日修改密码尝试次数 | 24h |
 
-> `name_hex` / `uuid_hex` 是将对应字符串以 UTF-8 编码后转为十六进制字符串，用于避免特殊字符污染 Redis key。
+> `name_hex` 是将 `real_name` 字符串以 UTF-8 编码后转为十六进制字符串，用于避免特殊字符污染 Redis key。
 
 ---
 

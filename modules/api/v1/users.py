@@ -477,9 +477,7 @@ async def change_password(
     redis = redis_conn.get_client()
     if redis is not None:
         today = _today_str()
-        # 使用 uuid hex 编码避免特殊字符污染 key
-        uuid_hex = user_uuid.encode("utf-8").hex()
-        pwd_chg_key = f"user:pwd_chg:{uuid_hex}:{today}"
+        pwd_chg_key = f"user:pwd_chg:{user_uuid}:{today}"
         attempts = _redis_get_int(redis, pwd_chg_key)
         if attempts >= _MAX_PWD_CHG_ATTEMPTS_PER_DAY:
             custom_log("WARNING", f"[ChangePassword] uuid={user_uuid} 今日修改密码次数已达上限")
@@ -587,9 +585,14 @@ async def update_profile(
     # 若涉及 real_name 或 class 的变更，检查是否与其他用户冲突
     # ----------------------------------------------------------------
     if "real_name" in update_data or "class" in update_data:
-        # 取变更后的有效值（未变更的字段沿用当前值）
-        effective_real_name: str = update_data.get("real_name") or current_user.get("real_name") or ""
-        effective_class: str = update_data.get("class") or current_user.get("class") or ""
+        # 取变更后的有效值（未变更的字段沿用当前值）；使用 is None 而非 or，
+        # 避免将空字符串（数据库中理论上可能存在）错误地当作"未提供"处理。
+        effective_real_name: str = (
+            update_data["real_name"] if "real_name" in update_data else (current_user.get("real_name") or "")
+        )
+        effective_class: str = (
+            update_data["class"] if "class" in update_data else (current_user.get("class") or "")
+        )
 
         async with get_session() as session:
             duplicate = await UsersDAO.find_duplicate_student_exclude_self(
