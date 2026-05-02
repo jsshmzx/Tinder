@@ -46,6 +46,12 @@ class UsersDAO(BaseDAO):
     MODEL = User
 
     @staticmethod
+    async def is_role_valid(role: str | None) -> bool:
+        if role is None:
+            return True
+        return role in {"superadmin", "songlist_editor", "normal-user"}
+
+    @staticmethod
     async def find_by_username_or_email(session: AsyncSession, login_identifier: str) -> User | None:
         """根据 username 或 email 查询用户，返回 User ORM 对象或 None。"""
         result = await session.scalars(

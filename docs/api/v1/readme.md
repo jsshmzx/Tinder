@@ -32,6 +32,16 @@
 | 时间格式 | ISO 8601（`YYYY-MM-DDTHH:MM:SSZ`） |
 | 错误结构 | `{ "detail": "<错误描述>" }` |
 
+### RBAC（角色）
+
+当前鉴权体系为 RBAC（基于角色的访问控制），暂时定义 3 类角色：
+
+- `superadmin`
+- `songlist_editor`
+- `normal-user`
+
+并约定权限强弱：`superadmin` > `songlist_editor` > `normal-user`。
+
 ---
 
 ## Auth — 认证
