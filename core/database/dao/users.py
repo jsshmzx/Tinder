@@ -68,3 +68,20 @@ class UsersDAO(BaseDAO):
             )
         )
         return result.first()
+
+    @staticmethod
+    async def find_duplicate_student_exclude_self(
+        session: AsyncSession, real_name: str, class_: str, exclude_uuid: str
+    ) -> User | None:
+        """检查是否存在同名同班级但不同 uuid 的学生，存在则返回该用户，否则返回 None。
+
+        用于修改个人信息时防止与其他用户产生冲突（排除自身）。
+        """
+        result = await session.scalars(
+            select(User).where(
+                User.real_name == real_name,
+                User.class_ == class_,
+                User.uuid != exclude_uuid,
+            )
+        )
+        return result.first()
