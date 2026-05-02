@@ -425,3 +425,256 @@ def test_register_case_insensitive_answers(client, monkeypatch):
 
     response = client.post("/api/v1/users/register", json=upper_answers_body)
     assert response.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/v1/users/me/password — 修改密码
+# ---------------------------------------------------------------------------
+
+_FAKE_USER = {
+    "uuid": "user-uuid-1",
+    "nickname": "小明",
+    "real_name": "王小明",
+    "class": "高一(1)班",
+    "class_type": "high-school",
+    "user_role": "normal-user",
+    "is_verified": False,
+    "current_status": "normal",
+    "password": None,  # 将在各测试中按需替换
+}
+
+
+@pytest.fixture()
+def client_with_auth(monkeypatch) -> TestClient:
+    """返回一个已注入 get_current_user 依赖覆盖的 TestClient。"""
+    from core.security.hash import get_password_hash as _hash
+
+    hashed = _hash("OldPassword123")
+    user = {**_FAKE_USER, "password": hashed}
+
+    app = FastAPI()
+    app.include_router(users_v1.router, prefix="/api/v1")
+    app.dependency_overrides[users_v1.get_current_user] = lambda: user
+    # 禁用 Redis 限流以简化大多数密码测试
+    monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: None))
+    return TestClient(app)
+
+
+def test_change_password_success(client_with_auth, monkeypatch):
+    """旧密码正确、新密码合法时修改成功，返回 200 和成功消息。"""
+
+    async def fake_update(self, uuid, data):
+        return {**_FAKE_USER, "password": data["password"]}
+
+    monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update, raising=False)
+
+    response = client_with_auth.patch(
+        "/api/v1/users/me/password",
+        json={"old_password": "OldPassword123", "new_password": "NewPassword456"},
+    )
+    assert response.status_code == 200
+    assert response.json()["message"] == "密码修改成功"
+
+
+def test_change_password_returns_400_when_old_password_wrong(client_with_auth):
+    """旧密码错误时返回 400。"""
+    response = client_with_auth.patch(
+        "/api/v1/users/me/password",
+        json={"old_password": "WrongPassword!", "new_password": "NewPassword456"},
+    )
+    assert response.status_code == 400
+    assert "旧密码不正确" in response.json()["detail"]
+
+
+def test_change_password_returns_400_when_new_same_as_old(client_with_auth):
+    """新密码与旧密码相同时返回 400。"""
+    response = client_with_auth.patch(
+        "/api/v1/users/me/password",
+        json={"old_password": "OldPassword123", "new_password": "OldPassword123"},
+    )
+    assert response.status_code == 400
+    assert "新密码不能与旧密码相同" in response.json()["detail"]
+
+
+def test_change_password_returns_400_when_no_password_set(monkeypatch):
+    """账号未设置密码时返回 400。"""
+    user_no_pwd = {**_FAKE_USER, "password": None}
+    app = FastAPI()
+    app.include_router(users_v1.router, prefix="/api/v1")
+    app.dependency_overrides[users_v1.get_current_user] = lambda: user_no_pwd
+    monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: None))
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/v1/users/me/password",
+        json={"old_password": "anything", "new_password": "NewPassword456"},
+    )
+    assert response.status_code == 400
+    assert "未设置密码" in response.json()["detail"]
+
+
+def test_change_password_returns_422_when_new_password_too_short(client_with_auth):
+    """新密码不足 8 个字符时返回 422。"""
+    response = client_with_auth.patch(
+        "/api/v1/users/me/password",
+        json={"old_password": "OldPassword123", "new_password": "Short1"},
+    )
+    assert response.status_code == 422
+
+
+def test_change_password_returns_422_when_new_password_has_surrounding_spaces(client_with_auth):
+    """新密码首尾有空格时返回 422。"""
+    response = client_with_auth.patch(
+        "/api/v1/users/me/password",
+        json={"old_password": "OldPassword123", "new_password": " NewPassword456 "},
+    )
+    assert response.status_code == 422
+
+
+def test_change_password_returns_429_when_rate_limit_exceeded(monkeypatch):
+    """当日修改密码尝试次数达上限时返回 429。"""
+    from core.security.hash import get_password_hash as _hash
+
+    hashed = _hash("OldPassword123")
+    user = {**_FAKE_USER, "password": hashed}
+
+    app = FastAPI()
+    app.include_router(users_v1.router, prefix="/api/v1")
+    app.dependency_overrides[users_v1.get_current_user] = lambda: user
+
+    mock_redis = SimpleNamespace(
+        get=lambda k: None,
+        incr=lambda k: 1,
+        expire=lambda k, t: None,
+    )
+    monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: mock_redis))
+    # 模拟已达上限
+    monkeypatch.setattr(
+        users_v1,
+        "_redis_get_int",
+        lambda client, key: users_v1._MAX_PWD_CHG_ATTEMPTS_PER_DAY,
+    )
+
+    client = TestClient(app)
+    response = client.patch(
+        "/api/v1/users/me/password",
+        json={"old_password": "OldPassword123", "new_password": "NewPassword456"},
+    )
+    assert response.status_code == 429
+    assert "今日修改密码次数已达上限" in response.json()["detail"]
+
+
+def test_change_password_returns_403_when_account_banned(monkeypatch):
+    """账号状态为 banned 时返回 403。"""
+    user_banned = {**_FAKE_USER, "password": "hashed", "current_status": "banned"}
+    app = FastAPI()
+    app.include_router(users_v1.router, prefix="/api/v1")
+    app.dependency_overrides[users_v1.get_current_user] = lambda: user_banned
+    monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: None))
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/v1/users/me/password",
+        json={"old_password": "anything", "new_password": "NewPassword456"},
+    )
+    assert response.status_code == 403
+    assert "账号状态异常" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/v1/users/me/profile — 修改个人信息
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def profile_client() -> TestClient:
+    """返回注入了 get_current_user 的 TestClient（用于个人信息修改测试）。"""
+    app = FastAPI()
+    app.include_router(users_v1.router, prefix="/api/v1")
+    app.dependency_overrides[users_v1.get_current_user] = lambda: {**_FAKE_USER}
+    return TestClient(app)
+
+
+def test_update_profile_success_nickname(profile_client, monkeypatch):
+    """仅修改昵称时成功返回更新后的用户信息。"""
+
+    async def fake_update(self, uuid, data):
+        return {**_FAKE_USER, **data}
+
+    monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update, raising=False)
+
+    response = profile_client.patch(
+        "/api/v1/users/me/profile",
+        json={"nickname": "新昵称"},
+    )
+    assert response.status_code == 200
+    assert response.json()["nickname"] == "新昵称"
+
+
+def test_update_profile_success_real_name_and_class(profile_client, monkeypatch):
+    """同时修改姓名和班级，无重复冲突时成功。"""
+
+    async def fake_find_dup(session, real_name, class_, exclude_uuid):
+        return None  # 无冲突
+
+    async def fake_update(self, uuid, data):
+        return {**_FAKE_USER, **{k: v for k, v in data.items()}}
+
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
+    monkeypatch.setattr(users_v1.UsersDAO, "find_duplicate_student_exclude_self", fake_find_dup)
+    monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update, raising=False)
+
+    response = profile_client.patch(
+        "/api/v1/users/me/profile",
+        json={"real_name": "李小明", "class": "高二(2)班"},
+    )
+    assert response.status_code == 200
+    assert response.json()["real_name"] == "李小明"
+    assert response.json()["class"] == "高二(2)班"
+
+
+def test_update_profile_returns_409_on_duplicate(profile_client, monkeypatch):
+    """修改姓名和班级后与其他用户冲突时返回 409。"""
+
+    async def fake_find_dup(session, real_name, class_, exclude_uuid):
+        return SimpleNamespace(uuid="other-uuid")  # 冲突
+
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
+    monkeypatch.setattr(users_v1.UsersDAO, "find_duplicate_student_exclude_self", fake_find_dup)
+
+    response = profile_client.patch(
+        "/api/v1/users/me/profile",
+        json={"real_name": "张三", "class": "高一(1)班"},
+    )
+    assert response.status_code == 409
+    assert "已存在" in response.json()["detail"]
+
+
+def test_update_profile_returns_422_when_no_fields(profile_client):
+    """不提供任何修改字段时返回 422。"""
+    response = profile_client.patch("/api/v1/users/me/profile", json={})
+    assert response.status_code == 422
+
+
+def test_update_profile_returns_422_when_control_char_in_nickname(profile_client):
+    """nickname 包含控制字符时返回 422。"""
+    response = profile_client.patch(
+        "/api/v1/users/me/profile",
+        json={"nickname": "bad\x01name"},
+    )
+    assert response.status_code == 422
+
+
+def test_update_profile_returns_403_when_account_banned(monkeypatch):
+    """账号被封禁时返回 403。"""
+    user_banned = {**_FAKE_USER, "current_status": "banned"}
+    app = FastAPI()
+    app.include_router(users_v1.router, prefix="/api/v1")
+    app.dependency_overrides[users_v1.get_current_user] = lambda: user_banned
+    client = TestClient(app)
+
+    response = client.patch(
+        "/api/v1/users/me/profile",
+        json={"nickname": "新昵称"},
+    )
+    assert response.status_code == 403
+    assert "账号状态异常" in response.json()["detail"]
