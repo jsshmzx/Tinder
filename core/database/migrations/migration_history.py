@@ -20,4 +20,5 @@ migration_history =[
     "alter_users_add_username_email.sql",
     "alter_users_add_password.sql",
     "initial_register_questions.sql",
+    "add_refresh_tokens.sql",
 ]
