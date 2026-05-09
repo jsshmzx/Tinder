@@ -22,6 +22,17 @@ def test_jwt_handler_raises_when_secret_key_missing(monkeypatch):
     importlib.reload(m)
 
 
+def test_generate_refresh_token_returns_distinct_plaintext_and_hash():
+    from core.security.jwt_handler import generate_refresh_token
+    import hashlib
+    plaintext, token_hash = generate_refresh_token()
+    assert len(plaintext) > 20
+    assert token_hash == hashlib.sha256(plaintext.encode()).hexdigest()
+    # Each call produces a unique token
+    plaintext2, _ = generate_refresh_token()
+    assert plaintext != plaintext2
+
+
 @pytest.fixture()
 def client() -> TestClient:
     app = FastAPI()

@@ -37,3 +37,13 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
         return decoded_token
     except JWTError:
         return None
+
+
+def generate_refresh_token() -> tuple[str, str]:
+    """Generate a cryptographically random refresh token.
+
+    Returns (plaintext_token, sha256_hash). Store only the hash.
+    """
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    return token, token_hash
