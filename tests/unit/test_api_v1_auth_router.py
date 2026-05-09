@@ -150,3 +150,47 @@ def test_read_users_me_returns_current_user_payload(client):
     assert response.json() == {"uuid": "u-1", "real_name": "Alice", "role": "admin"}
 
     app.dependency_overrides.clear()
+
+
+def test_refresh_token_success(client, monkeypatch):
+    import hashlib
+    plaintext = "valid-refresh-token"
+    token_hash = hashlib.sha256(plaintext.encode()).hexdigest()
+    record = {"user_uuid": "user-uuid-1", "token_hash": token_hash}
+
+    async def fake_find_active(h):
+        return record if h == token_hash else None
+
+    async def fake_revoke(h):
+        pass
+
+    async def fake_create(user_uuid, token_hash):
+        pass
+
+    monkeypatch.setattr(auth_v1.RefreshTokensDAO, "find_active", fake_find_active, raising=False)
+    monkeypatch.setattr(auth_v1.RefreshTokensDAO, "revoke", fake_revoke, raising=False)
+    monkeypatch.setattr(auth_v1.RefreshTokensDAO, "create", fake_create, raising=False)
+    monkeypatch.setattr(auth_v1, "create_access_token", lambda subject: "new-access-token")
+    monkeypatch.setattr(
+        auth_v1, "generate_refresh_token", lambda: ("new-refresh-token", "new-hash")
+    )
+
+    response = client.post("/api/v1/auth/refresh", json={"refresh_token": plaintext})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["access_token"] == "new-access-token"
+    assert data["refresh_token"] == "new-refresh-token"
+    assert data["token_type"] == "bearer"
+
+
+def test_refresh_token_returns_401_for_unknown_token(client, monkeypatch):
+    async def fake_find_active(h):
+        return None
+
+    monkeypatch.setattr(auth_v1.RefreshTokensDAO, "find_active", fake_find_active, raising=False)
+
+    response = client.post("/api/v1/auth/refresh", json={"refresh_token": "bogus-token"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "无效或已吊销的 Refresh Token"
