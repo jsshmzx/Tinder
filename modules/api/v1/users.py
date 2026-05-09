@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from core.database.connection.pgsql import get_session
 from core.database.connection.redis import redis_conn
+from core.database.dao.refresh_tokens import RefreshTokensDAO
 from core.database.dao.register_questions import RegisterQuestionsDAO
 from core.database.dao.users import UsersDAO
 from core.helper.ContainerCustomLog.index import custom_log
@@ -403,6 +404,10 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(
         ..., min_length=8, max_length=128, description="新密码（至少 8 个字符，首尾不能有空格）"
     )
+    refresh_token: str | None = Field(
+        None,
+        description="当前设备的 Refresh Token（可选，提供后将自动吊销该设备的 Refresh Token）",
+    )
 
     @field_validator("new_password")
     @classmethod
@@ -537,6 +542,11 @@ async def change_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="用户不存在",
         )
+
+    if body.refresh_token is not None:
+        import hashlib
+        token_hash = hashlib.sha256(body.refresh_token.encode()).hexdigest()
+        await RefreshTokensDAO.revoke(token_hash)
 
     custom_log("SUCCESS", f"[ChangePassword] uuid={user_uuid} 密码修改成功")
     return {"message": "密码修改成功"}

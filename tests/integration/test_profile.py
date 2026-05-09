@@ -313,6 +313,48 @@ def test_change_password_enforces_rate_limit(integration_client, profile_user, r
     assert "今日修改密码次数已达上限" in response.json()["detail"]
 
 
+def test_change_password_revokes_refresh_token(integration_client, test_user):
+    """修改密码并提供 refresh_token 后，该 token 应被吊销。"""
+    print("\n[TEST][Profile] PATCH /api/v1/users/me/password → 修改密码同时吊销 Refresh Token")
+
+    login = integration_client.post(
+        "/api/v1/auth/login",
+        data={"username": "testuser", "password": "testpassword123"},
+    )
+    tokens = login.json()
+    access_token = tokens["access_token"]
+    refresh_token = tokens["refresh_token"]
+
+    change = integration_client.patch(
+        "/api/v1/users/me/password",
+        json={
+            "old_password": "testpassword123",
+            "new_password": "newtestpassword456",
+            "refresh_token": refresh_token,
+        },
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert change.status_code == 200
+
+    # Refresh token must be revoked
+    refresh_attempt = integration_client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": refresh_token}
+    )
+    assert refresh_attempt.status_code == 401
+
+    # Restore password so test_user fixture cleanup works
+    login2 = integration_client.post(
+        "/api/v1/auth/login",
+        data={"username": "testuser", "password": "newtestpassword456"},
+    )
+    new_access = login2.json()["access_token"]
+    integration_client.patch(
+        "/api/v1/users/me/password",
+        json={"old_password": "newtestpassword456", "new_password": "testpassword123"},
+        headers={"Authorization": f"Bearer {new_access}"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # PATCH /api/v1/users/me/profile
 # ---------------------------------------------------------------------------

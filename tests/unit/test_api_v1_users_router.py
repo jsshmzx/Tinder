@@ -581,6 +581,51 @@ def test_change_password_returns_403_when_account_banned(monkeypatch):
     assert "账号状态异常" in response.json()["detail"]
 
 
+def test_change_password_revokes_refresh_token_when_provided(client_with_auth, monkeypatch):
+    """提供 refresh_token 时，修改密码后应吊销该 token。"""
+    import hashlib
+    plaintext_rt = "my-current-refresh-token"
+    expected_hash = hashlib.sha256(plaintext_rt.encode()).hexdigest()
+    revoked = []
+
+    async def fake_update(self, uuid, data):
+        return {**_FAKE_USER, "password": data["password"]}
+
+    async def fake_revoke(h):
+        revoked.append(h)
+
+    monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update, raising=False)
+    monkeypatch.setattr(users_v1.RefreshTokensDAO, "revoke", fake_revoke, raising=False)
+
+    response = client_with_auth.patch(
+        "/api/v1/users/me/password",
+        json={
+            "old_password": "OldPassword123",
+            "new_password": "NewPassword456",
+            "refresh_token": plaintext_rt,
+        },
+    )
+
+    assert response.status_code == 200
+    assert expected_hash in revoked
+
+
+def test_change_password_succeeds_without_refresh_token(client_with_auth, monkeypatch):
+    """不提供 refresh_token 时，修改密码成功且不调用吊销。"""
+    async def fake_update(self, uuid, data):
+        return {**_FAKE_USER, "password": data["password"]}
+
+    monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update, raising=False)
+
+    response = client_with_auth.patch(
+        "/api/v1/users/me/password",
+        json={"old_password": "OldPassword123", "new_password": "NewPassword456"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "密码修改成功"
+
+
 # ---------------------------------------------------------------------------
 # PATCH /api/v1/users/me/profile — 修改个人信息
 # ---------------------------------------------------------------------------
