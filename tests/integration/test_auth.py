@@ -59,8 +59,10 @@ def test_login_success_with_real_database(integration_client, test_user):
     assert response.status_code == 200
     data = response.json()
     assert "access_token" in data
+    assert "refresh_token" in data
     assert data["token_type"] == "bearer"
     assert len(data["access_token"]) > 0
+    assert len(data["refresh_token"]) > 0
 
 
 def test_login_with_email(integration_client, test_user):
@@ -74,6 +76,7 @@ def test_login_with_email(integration_client, test_user):
 
     assert response.status_code == 200
     assert "access_token" in response.json()
+    assert "refresh_token" in response.json()
 
 
 def test_login_fails_with_wrong_password(integration_client, test_user):

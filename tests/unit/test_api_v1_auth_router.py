@@ -57,6 +57,12 @@ def test_login_success_returns_bearer_token(client, monkeypatch):
         assert login_identifier == "alice"
         return user
 
+    async def fake_update(self, uuid, data):
+        return {}
+
+    async def fake_create_rt(user_uuid, token_hash):
+        pass
+
     monkeypatch.setattr(auth_v1, "get_session", _mock_get_session())
     monkeypatch.setattr(
         auth_v1.UsersDAO,
@@ -64,7 +70,12 @@ def test_login_success_returns_bearer_token(client, monkeypatch):
         fake_find_by_username_or_email,
         raising=False,
     )
+    monkeypatch.setattr(auth_v1.UsersDAO, "update", fake_update, raising=False)
     monkeypatch.setattr(auth_v1, "create_access_token", lambda subject: "mock-token-v1")
+    monkeypatch.setattr(
+        auth_v1, "generate_refresh_token", lambda: ("mock-refresh-token", "mock-hash")
+    )
+    monkeypatch.setattr(auth_v1.RefreshTokensDAO, "create", fake_create_rt, raising=False)
 
     response = client.post(
         "/api/v1/auth/login",
@@ -72,7 +83,11 @@ def test_login_success_returns_bearer_token(client, monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"access_token": "mock-token-v1", "token_type": "bearer"}
+    assert response.json() == {
+        "access_token": "mock-token-v1",
+        "refresh_token": "mock-refresh-token",
+        "token_type": "bearer",
+    }
 
 
 def test_login_returns_401_when_user_not_found(client, monkeypatch):
