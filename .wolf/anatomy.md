@@ -1,7 +1,7 @@
 # anatomy.md
 
-> Auto-maintained by OpenWolf. Last scanned: 2026-05-09T07:59:58.397Z
-> Files: 517 tracked | Anatomy hits: 0 | Misses: 0
+> Auto-maintained by OpenWolf. Last scanned: 2026-05-09T09:15:32.133Z
+> Files: 532 tracked | Anatomy hits: 0 | Misses: 0
 
 ## ./
 
@@ -753,3 +753,51 @@
 - `test_curves.py` — Tests: from_pem, from_pem_with_explicit_when_explicit_disabled, from_pem_with_named_curve_with_named_curve_disabled, from_pem_with_wrong_header + 2... (~3738 tok)
 - `test_der.py` — compatibility with Python 2.6, for that we need unittest2 package, (~5672 tok)
 - `test_ecdh.py` — Tests: ecdh_each, ecdh_both_keys_present, ecdh_no_public_key, load_key_from_wrong_curve + 8 more (~4395 tok)
+
+## core/database/dao/
+
+- `refresh_tokens.py` — RefreshToken: create, find_active, revoke, revoke_all_for_user (~738 tok)
+
+## core/database/migrations/
+
+- `migration_history.py` (~208 tok)
+
+## core/database/migrations/SQL/
+
+- `add_refresh_tokens.sql` — SQL: tables: refresh_tokens (~114 tok)
+
+## core/middleware/auth/
+
+- `dependencies.py` — RoleChecker: invalidate_user_cache, get_current_user (~979 tok)
+
+## core/security/
+
+- `jwt_handler.py` — create_access_token, decode_access_token, generate_refresh_token (~416 tok)
+
+## docs/superpowers/plans/
+
+- `2026-05-09-auth-improvements.md` — Auth Improvements Implementation Plan (~8132 tok)
+
+## docs/superpowers/specs/
+
+- `2026-05-09-auth-improvements-design.md` — Auth API Improvements Design (~1493 tok)
+
+## modules/api/v1/
+
+- `auth.py` — API: 4 endpoints (~1046 tok)
+- `users.py` — 用户注册相关接口。 (~7109 tok)
+
+## tests/
+
+- `conftest.py` (~27 tok)
+
+## tests/integration/
+
+- `conftest.py` — Integration-test fixtures — requires real PostgreSQL and Redis. (~1280 tok)
+- `test_auth.py` — Integration tests — Auth endpoints with real PostgreSQL + Redis backend. (~1762 tok)
+- `test_profile.py` — Integration tests — PATCH /users/me/password and PATCH /users/me/profile (~5170 tok)
+
+## tests/unit/
+
+- `test_api_v1_auth_router.py` — Unit tests — modules.api.v1.auth (no database, no Redis). (~2130 tok)
+- `test_api_v1_users_router.py` — Unit tests — modules.api.v1.users (no database, no Redis). (~7270 tok)

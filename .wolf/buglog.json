@@ -1,4 +1,53 @@
 {
   "version": 1,
-  "bugs": []
+  "bugs": [
+    {
+      "id": "bug-001",
+      "timestamp": "2026-05-09T09:08:16.096Z",
+      "error_message": "Function not marked async",
+      "file": "tests/unit/test_api_v1_auth_router.py",
+      "root_cause": "Function uses await but wasn't declared async",
+      "fix": "Added async modifier",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 2,
+      "last_seen": "2026-05-09T09:11:40.182Z"
+    },
+    {
+      "id": "bug-002",
+      "timestamp": "2026-05-09T09:14:58.847Z",
+      "error_message": "Missing await",
+      "file": "modules/api/v1/users.py",
+      "root_cause": "Async call without await — returned Promise instead of value",
+      "fix": "Added await to async call",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-09T09:14:58.847Z"
+    },
+    {
+      "id": "bug-003",
+      "timestamp": "2026-05-09T09:15:15.823Z",
+      "error_message": "Function not marked async",
+      "file": "tests/unit/test_api_v1_users_router.py",
+      "root_cause": "Function uses await but wasn't declared async",
+      "fix": "Added async modifier",
+      "tags": [
+        "auto-detected",
+        "async-fix",
+        "py"
+      ],
+      "related_bugs": [],
+      "occurrences": 1,
+      "last_seen": "2026-05-09T09:15:15.823Z"
+    }
+  ]
 }
