@@ -1,13 +1,22 @@
+import hashlib
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from jose import jwt, JWTError
 
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "b3c9d1a2c5f7e8b6a3d4f1c9e1b5a1d4f7c8b2a3daaaf1")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError(
+        "JWT_SECRET_KEY environment variable is not set. "
+        "Set it to a long random string before starting the server."
+    )
+
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour
+
 
 def create_access_token(subject: str | int, expires_delta: timedelta | None = None) -> str:
     """为指定的主体创建 JSON Web Token。"""
@@ -20,6 +29,7 @@ def create_access_token(subject: str | int, expires_delta: timedelta | None = No
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+
 def decode_access_token(token: str) -> dict[str, Any] | None:
     """解码 JSON Web Token。"""
     try:
@@ -27,4 +37,3 @@ def decode_access_token(token: str) -> dict[str, Any] | None:
         return decoded_token
     except JWTError:
         return None
-

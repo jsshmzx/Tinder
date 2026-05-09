@@ -1,3 +1,4 @@
+import json
 from typing import List
 
 from fastapi import Depends, HTTPException, status
@@ -10,7 +11,7 @@ from core.security.jwt_handler import decode_access_token
 from core.security.rbac import role_includes
 from core.helper.ContainerCustomLog.index import custom_log
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 USER_CACHE_PREFIX = "auth:user:"
 USER_CACHE_TTL_SECONDS = 60
@@ -54,8 +55,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         try:
             cached = client.get(_get_user_cache_key(user_uuid))
             if cached:
-                import json
-
                 return json.loads(cached)
         except Exception as exc:
             custom_log("WARNING", f"[RBAC] Redis 读取用户缓存失败 uuid={user_uuid} exc={exc}")
@@ -66,8 +65,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
 
     if client is not None:
         try:
-            import json
-
             client.setex(
                 _get_user_cache_key(user_uuid),
                 USER_CACHE_TTL_SECONDS,

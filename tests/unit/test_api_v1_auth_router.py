@@ -1,5 +1,6 @@
 """Unit tests — modules.api.v1.auth (no database, no Redis)."""
 
+import importlib
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
@@ -9,6 +10,16 @@ from fastapi.testclient import TestClient
 
 from core.security.hash import get_password_hash
 from modules.api.v1 import auth as auth_v1
+
+
+def test_jwt_handler_raises_when_secret_key_missing(monkeypatch):
+    monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+    import core.security.jwt_handler as m
+    with pytest.raises(RuntimeError, match="JWT_SECRET_KEY"):
+        importlib.reload(m)
+    # Restore so subsequent tests work
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-only-secret-key-do-not-use-in-prod")
+    importlib.reload(m)
 
 
 @pytest.fixture()
