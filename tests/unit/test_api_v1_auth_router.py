@@ -194,3 +194,35 @@ def test_refresh_token_returns_401_for_unknown_token(client, monkeypatch):
 
     assert response.status_code == 401
     assert response.json()["detail"] == "无效或已吊销的 Refresh Token"
+
+
+def test_logout_revokes_refresh_token(client, monkeypatch):
+    import hashlib
+    plaintext = "my-refresh-token"
+    expected_hash = hashlib.sha256(plaintext.encode()).hexdigest()
+    revoked_hashes = []
+
+    async def fake_revoke(h):
+        revoked_hashes.append(h)
+
+    monkeypatch.setattr(auth_v1.RefreshTokensDAO, "revoke", fake_revoke, raising=False)
+    client.app.dependency_overrides[auth_v1.get_current_user] = lambda: {"uuid": "u-1"}
+
+    response = client.post(
+        "/api/v1/auth/logout",
+        json={"refresh_token": plaintext},
+        headers={"Authorization": "Bearer token"},
+    )
+    client.app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "已登出"}
+    assert expected_hash in revoked_hashes
+
+
+def test_logout_requires_authentication(client):
+    response = client.post(
+        "/api/v1/auth/logout",
+        json={"refresh_token": "any-token"},
+    )
+    assert response.status_code == 401
