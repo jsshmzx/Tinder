@@ -5,6 +5,7 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.database.connection.pgsql import Base, get_session
+from core.database.dao.base import BaseDAO
 
 
 class RefreshToken(Base):
@@ -21,7 +22,8 @@ class RefreshToken(Base):
     )
 
 
-class RefreshTokensDAO:
+class RefreshTokensDAO(BaseDAO):
+    MODEL = RefreshToken
 
     @staticmethod
     async def create(user_uuid: str, token_hash: str) -> None:
@@ -30,8 +32,8 @@ class RefreshTokensDAO:
             session.add(obj)
             await session.flush()
 
-    @staticmethod
-    async def find_active(token_hash: str) -> dict | None:
+    @classmethod
+    async def find_active(cls, token_hash: str) -> dict | None:
         async with get_session() as session:
             obj = (
                 await session.scalars(
@@ -43,7 +45,7 @@ class RefreshTokensDAO:
             ).first()
             if obj is None:
                 return None
-            return {"user_uuid": obj.user_uuid, "token_hash": obj.token_hash}
+            return cls._to_dict(obj)
 
     @staticmethod
     async def revoke(token_hash: str) -> None:
