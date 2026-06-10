@@ -461,6 +461,10 @@ def client_with_auth(monkeypatch) -> TestClient:
     async def fake_find_password_hash(session, user_uuid):
         return hashed
     monkeypatch.setattr(users_v1.UsersDAO, "find_password_hash", fake_find_password_hash)
+    # Mock revoke_all_for_user: 变更密码后吊销所有 token（单元测试无需真实 DB）
+    async def fake_revoke_all_for_user(user_uuid):
+        pass
+    monkeypatch.setattr(users_v1.RefreshTokensDAO, "revoke_all_for_user", fake_revoke_all_for_user)
     return TestClient(app)
 
 

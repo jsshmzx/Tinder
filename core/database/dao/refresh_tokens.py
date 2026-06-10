@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Integer, Text, select
+from sqlalchemy import Integer, Text, delete, select
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -57,6 +57,7 @@ class RefreshTokensDAO(BaseDAO):
             ).first()
             if obj:
                 obj.revoked_at = datetime.now(timezone.utc)
+                await RefreshTokensDAO._cleanup_old_revoked()
                 await session.flush()
 
     @staticmethod
@@ -73,4 +74,16 @@ class RefreshTokensDAO(BaseDAO):
             now = datetime.now(timezone.utc)
             for obj in objs:
                 obj.revoked_at = now
+            await session.flush()
+
+    @staticmethod
+    async def _cleanup_old_revoked() -> None:
+        """删除吊销超过 7 天的旧 token 记录。"""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+        async with get_session() as session:
+            await session.execute(
+                delete(RefreshToken).where(
+                    RefreshToken.revoked_at < cutoff
+                )
+            )
             await session.flush()

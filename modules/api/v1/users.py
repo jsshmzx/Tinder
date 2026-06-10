@@ -544,6 +544,9 @@ async def change_password(
             detail="用户不存在",
         )
 
+    # 密码变更后，撤销该用户的所有 Refresh Token，强制所有设备重新登录
+    await RefreshTokensDAO.revoke_all_for_user(user_uuid)
+
 
     if body.refresh_token is not None:
         import hashlib
