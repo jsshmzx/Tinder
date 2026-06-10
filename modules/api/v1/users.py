@@ -496,7 +496,8 @@ async def change_password(
     # ----------------------------------------------------------------
     # 步骤 3：检查账号是否已设置密码
     # ----------------------------------------------------------------
-    current_hashed: str | None = current_user.get("password")
+    async with get_session() as session:
+        current_hashed: str | None = await UsersDAO.find_password_hash(session, user_uuid)
     if not current_hashed:
         custom_log("WARNING", f"[ChangePassword] uuid={user_uuid} 账号未设置密码，无法通过旧密码验证")
         raise HTTPException(
@@ -542,6 +543,7 @@ async def change_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="用户不存在",
         )
+
 
     if body.refresh_token is not None:
         import hashlib

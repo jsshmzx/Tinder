@@ -62,6 +62,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     user_dict = await UsersDAO().find_by_uuid(user_uuid)
     if user_dict is None:
         raise credentials_exception
+    user_dict.pop("password", None)
 
     if client is not None:
         try:

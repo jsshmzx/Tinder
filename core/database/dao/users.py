@@ -91,3 +91,12 @@ class UsersDAO(BaseDAO):
             )
         )
         return result.first()
+
+    @staticmethod
+    async def find_password_hash(session: AsyncSession, user_uuid: str) -> str | None:
+        """查询用户密码哈希，仅返回 password 字段。"""
+        result = await session.execute(
+            select(User.password).where(User.uuid == user_uuid).limit(1)
+        )
+        row = result.first()
+        return row[0] if row else None

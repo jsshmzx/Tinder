@@ -170,6 +170,10 @@ def test_refresh_token_success(client, monkeypatch):
     monkeypatch.setattr(auth_v1.RefreshTokensDAO, "find_active", fake_find_active, raising=False)
     monkeypatch.setattr(auth_v1.RefreshTokensDAO, "revoke", fake_revoke, raising=False)
     monkeypatch.setattr(auth_v1.RefreshTokensDAO, "create", fake_create, raising=False)
+    # Mock UsersDAO().find_by_uuid to return a valid user (refresh now validates user)
+    async def fake_find_by_uuid(self, uuid):
+        return {"uuid": uuid, "real_name": "Test", "current_status": "normal"}
+    monkeypatch.setattr(auth_v1.UsersDAO, "find_by_uuid", fake_find_by_uuid, raising=False)
     monkeypatch.setattr(auth_v1, "create_access_token", lambda subject: "new-access-token")
     monkeypatch.setattr(
         auth_v1, "generate_refresh_token", lambda: ("new-refresh-token", "new-hash")

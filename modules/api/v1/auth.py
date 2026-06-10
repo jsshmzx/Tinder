@@ -15,10 +15,49 @@ from core.middleware.auth.dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Auth v1"])
 
+# 登录限流配置
+_LOGIN_MAX_ATTEMPTS_PER_IP_PER_MINUTE = 20
+_LOGIN_MAX_ATTEMPTS_PER_USERNAME_PER_MINUTE = 5
+_LOGIN_RATE_WINDOW_SECONDS = 60
+
+
+def _login_redis_incr(key: str, ttl: int) -> int:
+    """递增 Redis 计数器，返回递增后的值。"""
+    from core.database.connection.redis import redis_conn
+    client = redis_conn.get_client()
+    if client is None:
+        return 0
+    try:
+        count = client.incr(key)
+        if count == 1:
+            client.expire(key, ttl)
+        return count
+    except Exception:
+        return 0
+
 
 @router.post("/login", response_model=dict[str, Any])
 async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     """用户登录，返回 Access Token 和 Refresh Token。"""
+
+    # 速率限制：IP 级别和用户名级别
+    client_ip = request.client.host if request.client else "unknown"
+    ip_key = f"login_atm:ip:{client_ip}:min"
+    un_key = f"login_atm:un:{form_data.username}:min"
+
+    ip_count = _login_redis_incr(ip_key, _LOGIN_RATE_WINDOW_SECONDS)
+    un_count = _login_redis_incr(un_key, _LOGIN_RATE_WINDOW_SECONDS)
+
+    if ip_count > _LOGIN_MAX_ATTEMPTS_PER_IP_PER_MINUTE:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="登录尝试过于频繁，请稍后再试",
+        )
+    if un_count > _LOGIN_MAX_ATTEMPTS_PER_USERNAME_PER_MINUTE:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="登录尝试过于频繁，请稍后再试",
+        )
     async with get_session() as session:
         user = await UsersDAO.find_by_username_or_email(session, form_data.username)
         if not user or not user.password:
@@ -81,9 +120,25 @@ async def refresh_tokens(body: RefreshRequest):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    user_uuid = record["user_uuid"]
+
+    # 校验用户是否存在且未被禁用
+    user = await UsersDAO().find_by_uuid(user_uuid)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户不存在",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if user.get("current_status") not in (None, "normal"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="账号已被禁用",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     await RefreshTokensDAO.revoke(token_hash)
 
-    user_uuid = record["user_uuid"]
     access_token = create_access_token(subject=user_uuid)
     plaintext, new_hash = generate_refresh_token()
     await RefreshTokensDAO.create(user_uuid=user_uuid, token_hash=new_hash)
