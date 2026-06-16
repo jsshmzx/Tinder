@@ -1,5 +1,6 @@
 """Unit tests — modules.api.v1.users (no database, no Redis)."""
 
+import hashlib
 import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -10,6 +11,16 @@ from fastapi.testclient import TestClient
 
 from core.config import settings
 from modules.api.v1 import users as users_v1
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _sha256_hex(text: str) -> str:
+    """Compute double SHA256 hex of a plain string (matching the client-side hashing)."""
+    return hashlib.sha256(hashlib.sha256(text.encode()).hexdigest().encode()).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +59,7 @@ def _build_sheet_data(questions: list[dict], ip: str = "127.0.0.1") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# GET /api/v1/users/register/questions
+# POST /api/v1/users/register/sheet/request — 获取答题卡
 # ---------------------------------------------------------------------------
 
 
@@ -71,7 +82,7 @@ def test_get_questions_returns_sheet(client, monkeypatch):
     # IP 换题次数返回 0（未到上限）
     monkeypatch.setattr(users_v1, "_redis_get_int", lambda client, key: 0)
 
-    response = client.get("/api/v1/users/register/questions")
+    response = client.post("/api/v1/users/register/sheet/request")
 
     assert response.status_code == 200
     data = response.json()
@@ -100,7 +111,7 @@ def test_get_questions_returns_429_when_ip_at_limit(client, monkeypatch):
         lambda client, key: settings.REG_MAX_SHEETS_PER_IP_PER_DAY,
     )
 
-    response = client.get("/api/v1/users/register/questions")
+    response = client.post("/api/v1/users/register/sheet/request")
     assert response.status_code == 429
 
 
@@ -120,12 +131,11 @@ def test_get_questions_returns_503_when_insufficient_questions(client, monkeypat
     monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: mock_redis))
     monkeypatch.setattr(users_v1, "_redis_get_int", lambda client, key: 0)
 
-    response = client.get("/api/v1/users/register/questions")
+    response = client.post("/api/v1/users/register/sheet/request")
     assert response.status_code == 503
 
 
 def test_get_questions_returns_503_when_redis_unavailable(client, monkeypatch):
-    """Redis 不可用时返回 503。"""
 
     async def fake_find_random_active(count=5):
         return _fake_questions()
@@ -133,7 +143,7 @@ def test_get_questions_returns_503_when_redis_unavailable(client, monkeypatch):
     monkeypatch.setattr(users_v1.RegisterQuestionsDAO, "find_random_active", fake_find_random_active)
     monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: None))
 
-    response = client.get("/api/v1/users/register/questions")
+    response = client.post("/api/v1/users/register/sheet/request")
     assert response.status_code == 503
 
 
@@ -194,7 +204,7 @@ def _build_mock_redis(sheet_data: dict, ip_count: int = 0, name_count: int = 0, 
 
 
 def test_register_success(client, monkeypatch):
-    """全部条件满足时注册成功，返回 201 和 access_token。"""
+    """全部条件满足时注册成功，返回 201 和 temp_token。"""
     questions = _fake_questions()
     sheet_data = _build_sheet_data(questions)
     mock_redis, mock_get_int = _build_mock_redis(sheet_data)
@@ -225,14 +235,15 @@ def test_register_success(client, monkeypatch):
     monkeypatch.setattr(users_v1, "_redis_get_int", mock_get_int)
     monkeypatch.setattr(users_v1.UsersDAO, "find_duplicate_student", fake_find_duplicate)
     monkeypatch.setattr(users_v1.UsersDAO, "create", fake_create, raising=False)
-    monkeypatch.setattr(users_v1, "create_access_token", lambda subject: "mock-token")
+    monkeypatch.setattr(users_v1, "create_temp_token", lambda subject, purpose=None, expires_minutes=None: "mock-temp-token")
 
     response = client.post("/api/v1/users/register", json=_VALID_REGISTER_BODY)
 
     assert response.status_code == 201
     data = response.json()
-    assert data["access_token"] == "mock-token"
+    assert data["temp_token"] == "mock-temp-token"
     assert data["token_type"] == "bearer"
+    assert data["expires_in"] == 900
     assert data["user"]["real_name"] == "明明"
     assert data["user"]["role"] == "normal-user"
     assert data["user"]["is_verified"] is False
@@ -413,7 +424,7 @@ def test_register_case_insensitive_answers(client, monkeypatch):
     monkeypatch.setattr(users_v1, "_redis_get_int", mock_get_int)
     monkeypatch.setattr(users_v1.UsersDAO, "find_duplicate_student", fake_find_duplicate)
     monkeypatch.setattr(users_v1.UsersDAO, "create", fake_create, raising=False)
-    monkeypatch.setattr(users_v1, "create_access_token", lambda subject: "mock-token")
+    monkeypatch.setattr(users_v1, "create_temp_token", lambda subject, purpose=None, expires_minutes=None: "mock-temp-token")
 
     # 答案全部大写（原始答案为小写）
     upper_answers_body = {
@@ -444,23 +455,31 @@ _FAKE_USER = {
     "password": None,  # 将在各测试中按需替换
 }
 
+# Pre-computed hex passwords (double SHA256)
+_OLD_HEX = _sha256_hex("OldPassword123")
+_NEW_HEX = _sha256_hex("NewPassword456")
+_WRONG_HEX = _sha256_hex("WrongPassword!")
+
 
 @pytest.fixture()
 def client_with_auth(monkeypatch) -> TestClient:
     """返回一个已注入 get_current_user 依赖覆盖的 TestClient。"""
-    from core.security.hash import get_password_hash as _hash
-
-    hashed = _hash("OldPassword123")
-    user = {**_FAKE_USER, "password": hashed}
+    user = {**_FAKE_USER, "password": _OLD_HEX}
 
     app = FastAPI()
-    app.include_router(users_v1.router, prefix="/api/v1")
+    app.include_router(users_v1.router)
     app.dependency_overrides[users_v1.get_current_user] = lambda: user
     # 禁用 Redis 限流以简化大多数密码测试
     monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: None))
+    # Mock verify_password to do direct hex comparison
+    def fake_verify(plain: str, stored: str) -> bool:
+        return _sha256_hex(plain) == stored if len(plain) < 64 else plain == stored
+    monkeypatch.setattr(users_v1, "verify_password", fake_verify, raising=False)
+    # Mock get_password_hash to return hex as-is (pass-through)
+    monkeypatch.setattr(users_v1, "get_password_hash", lambda pw: pw)
     # Mock find_password_hash: change_password 不再从 current_user 读取密码哈希
     async def fake_find_password_hash(session, user_uuid):
-        return hashed
+        return _OLD_HEX
     monkeypatch.setattr(users_v1.UsersDAO, "find_password_hash", fake_find_password_hash)
     # Mock revoke_all_for_user: 变更密码后吊销所有 token（单元测试无需真实 DB）
     async def fake_revoke_all_for_user(user_uuid):
@@ -478,8 +497,8 @@ def test_change_password_success(client_with_auth, monkeypatch):
     monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update, raising=False)
 
     response = client_with_auth.patch(
-        "/api/v1/users/me/password",
-        json={"old_password": "OldPassword123", "new_password": "NewPassword456"},
+        "/users/me/password",
+        json={"old_password": _OLD_HEX, "new_password": _NEW_HEX},
     )
     assert response.status_code == 200
     assert response.json()["message"] == "密码修改成功"
@@ -488,8 +507,8 @@ def test_change_password_success(client_with_auth, monkeypatch):
 def test_change_password_returns_400_when_old_password_wrong(client_with_auth):
     """旧密码错误时返回 400。"""
     response = client_with_auth.patch(
-        "/api/v1/users/me/password",
-        json={"old_password": "WrongPassword!", "new_password": "NewPassword456"},
+        "/users/me/password",
+        json={"old_password": _WRONG_HEX, "new_password": _NEW_HEX},
     )
     assert response.status_code == 400
     assert "旧密码不正确" in response.json()["detail"]
@@ -498,14 +517,18 @@ def test_change_password_returns_400_when_old_password_wrong(client_with_auth):
 def test_change_password_returns_400_when_new_same_as_old(client_with_auth):
     """新密码与旧密码相同时返回 400。"""
     response = client_with_auth.patch(
-        "/api/v1/users/me/password",
-        json={"old_password": "OldPassword123", "new_password": "OldPassword123"},
+        "/users/me/password",
+        json={"old_password": _OLD_HEX, "new_password": _OLD_HEX},
     )
+    assert response.status_code == 400
+    assert "新密码不能与旧密码相同" in response.json()["detail"]
+
+
 def test_change_password_returns_400_when_no_password_set(monkeypatch):
     """账号未设置密码时返回 400。"""
     user_no_pwd = {**_FAKE_USER, "password": None}
     app = FastAPI()
-    app.include_router(users_v1.router, prefix="/api/v1")
+    app.include_router(users_v1.router)
     app.dependency_overrides[users_v1.get_current_user] = lambda: user_no_pwd
     monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: None))
     # Mock find_password_hash to return None (未设置密码)
@@ -515,18 +538,18 @@ def test_change_password_returns_400_when_no_password_set(monkeypatch):
     client = TestClient(app)
 
     response = client.patch(
-        "/api/v1/users/me/password",
-        json={"old_password": "anything", "new_password": "NewPassword456"},
+        "/users/me/password",
+        json={"old_password": _OLD_HEX, "new_password": _NEW_HEX},
     )
     assert response.status_code == 400
     assert "未设置密码" in response.json()["detail"]
 
 
 def test_change_password_returns_422_when_new_password_too_short(client_with_auth):
-    """新密码不足 8 个字符时返回 422。"""
+    """新密码不是 64 字符 hex 时返回 422。"""
     response = client_with_auth.patch(
-        "/api/v1/users/me/password",
-        json={"old_password": "OldPassword123", "new_password": "Short1"},
+        "/users/me/password",
+        json={"old_password": _OLD_HEX, "new_password": "Short1"},
     )
     assert response.status_code == 422
 
@@ -534,21 +557,18 @@ def test_change_password_returns_422_when_new_password_too_short(client_with_aut
 def test_change_password_returns_422_when_new_password_has_surrounding_spaces(client_with_auth):
     """新密码首尾有空格时返回 422。"""
     response = client_with_auth.patch(
-        "/api/v1/users/me/password",
-        json={"old_password": "OldPassword123", "new_password": " NewPassword456 "},
+        "/users/me/password",
+        json={"old_password": _OLD_HEX, "new_password": " NewPassword456 "},
     )
     assert response.status_code == 422
 
 
 def test_change_password_returns_429_when_rate_limit_exceeded(monkeypatch):
     """当日修改密码尝试次数达上限时返回 429。"""
-    from core.security.hash import get_password_hash as _hash
-
-    hashed = _hash("OldPassword123")
-    user = {**_FAKE_USER, "password": hashed}
+    user = {**_FAKE_USER, "password": _OLD_HEX}
 
     app = FastAPI()
-    app.include_router(users_v1.router, prefix="/api/v1")
+    app.include_router(users_v1.router)
     app.dependency_overrides[users_v1.get_current_user] = lambda: user
 
     mock_redis = SimpleNamespace(
@@ -566,8 +586,8 @@ def test_change_password_returns_429_when_rate_limit_exceeded(monkeypatch):
 
     client = TestClient(app)
     response = client.patch(
-        "/api/v1/users/me/password",
-        json={"old_password": "OldPassword123", "new_password": "NewPassword456"},
+        "/users/me/password",
+        json={"old_password": _OLD_HEX, "new_password": _NEW_HEX},
     )
     assert response.status_code == 429
     assert "今日修改密码次数已达上限" in response.json()["detail"]
@@ -575,16 +595,16 @@ def test_change_password_returns_429_when_rate_limit_exceeded(monkeypatch):
 
 def test_change_password_returns_403_when_account_banned(monkeypatch):
     """账号状态为 banned 时返回 403。"""
-    user_banned = {**_FAKE_USER, "password": "hashed", "current_status": "banned"}
+    user_banned = {**_FAKE_USER, "password": _OLD_HEX, "current_status": "banned"}
     app = FastAPI()
-    app.include_router(users_v1.router, prefix="/api/v1")
+    app.include_router(users_v1.router)
     app.dependency_overrides[users_v1.get_current_user] = lambda: user_banned
     monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: None))
     client = TestClient(app)
 
     response = client.patch(
-        "/api/v1/users/me/password",
-        json={"old_password": "anything", "new_password": "NewPassword456"},
+        "/users/me/password",
+        json={"old_password": _OLD_HEX, "new_password": _NEW_HEX},
     )
     assert response.status_code == 403
     assert "账号状态异常" in response.json()["detail"]
@@ -607,10 +627,10 @@ def test_change_password_revokes_refresh_token_when_provided(client_with_auth, m
     monkeypatch.setattr(users_v1.RefreshTokensDAO, "revoke", fake_revoke, raising=False)
 
     response = client_with_auth.patch(
-        "/api/v1/users/me/password",
+        "/users/me/password",
         json={
-            "old_password": "OldPassword123",
-            "new_password": "NewPassword456",
+            "old_password": _OLD_HEX,
+            "new_password": _NEW_HEX,
             "refresh_token": plaintext_rt,
         },
     )
@@ -627,8 +647,8 @@ def test_change_password_succeeds_without_refresh_token(client_with_auth, monkey
     monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update, raising=False)
 
     response = client_with_auth.patch(
-        "/api/v1/users/me/password",
-        json={"old_password": "OldPassword123", "new_password": "NewPassword456"},
+        "/users/me/password",
+        json={"old_password": _OLD_HEX, "new_password": _NEW_HEX},
     )
 
     assert response.status_code == 200

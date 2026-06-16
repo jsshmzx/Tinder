@@ -1,0 +1,211 @@
+"""Unit tests — modules.api.v1.admin (mocked dependencies, no DB/Redis)."""
+
+from types import SimpleNamespace
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from modules.api.v1 import admin as admin_v1
+from core.middleware.auth.dependencies import get_current_user
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def admin_client(monkeypatch):
+    """Build a TestClient with get_current_user overridden to superadmin."""
+    user = {
+        "uuid": "admin-uuid",
+        "user_role": "superadmin",
+        "current_status": "normal",
+    }
+
+    app = FastAPI()
+    app.include_router(admin_v1.router)
+    app.dependency_overrides[get_current_user] = lambda: user
+
+    return TestClient(app)
+
+
+def _mock_find_all(self, *args, **kwargs):
+    return [
+        {"uuid": "u-1", "nickname": "Alice", "user_role": "normal-user"},
+        {"uuid": "u-2", "nickname": "Bob", "user_role": "normal-user"},
+    ]
+
+
+def _mock_create(self, data):
+    return {**data, "uuid": "new-uuid", "created": True}
+
+
+def _mock_update(self, uuid, data):
+    if uuid == "nonexistent-uuid":
+        return None
+    return {"uuid": uuid, **data, "updated": True}
+
+
+def _mock_delete(self, uuid):
+    if uuid == "nonexistent-uuid":
+        return False
+    return True
+
+
+def _mock_invalidate(*args, **kwargs):
+    pass
+
+
+# ---------------------------------------------------------------------------
+# GET /admin/users
+# ---------------------------------------------------------------------------
+
+def test_admin_list_users_returns_list(admin_client, monkeypatch):
+    monkeypatch.setattr(admin_v1.UsersDAO, "find_all", _mock_find_all, raising=False)
+    monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    resp = admin_client.get("/admin/users")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) == 2
+    assert data[0]["uuid"] == "u-1"
+
+
+def test_admin_list_users_requires_superadmin(admin_client, monkeypatch):
+    """A normal-user should be blocked."""
+    admin_client.app.dependency_overrides[get_current_user] = lambda: {
+        "uuid": "u-normal",
+        "user_role": "normal-user",
+        "current_status": "normal",
+    }
+    resp = admin_client.get("/admin/users")
+    assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/users
+# ---------------------------------------------------------------------------
+
+def test_admin_create_user(admin_client, monkeypatch):
+    monkeypatch.setattr(admin_v1.UsersDAO, "create", _mock_create, raising=False)
+    monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    resp = admin_client.post(
+        "/admin/users",
+        json={"nickname": "NewUser", "user_role": "normal-user"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["uuid"] == "new-uuid"
+    assert data["nickname"] == "NewUser"
+
+
+def test_admin_create_user_hashes_password(admin_client, monkeypatch):
+    """When payload contains password, it should be hashed."""
+    hashed_passwords = []
+
+    def capture_create(self, data):
+        if "password" in data:
+            hashed_passwords.append(data["password"])
+        return {**data, "uuid": "new-uuid"}
+
+    monkeypatch.setattr(admin_v1.UsersDAO, "create", capture_create, raising=False)
+    monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    resp = admin_client.post(
+        "/admin/users",
+        json={"nickname": "SecureUser", "password": "secret123"},
+    )
+    assert resp.status_code == 200
+    assert len(hashed_passwords) == 1
+    # Password should NOT be "secret123" anymore
+    assert hashed_passwords[0] != "secret123"
+
+
+# ---------------------------------------------------------------------------
+# PATCH /admin/users/{user_uuid}
+# ---------------------------------------------------------------------------
+
+def test_admin_update_user(admin_client, monkeypatch):
+    monkeypatch.setattr(admin_v1.UsersDAO, "update", _mock_update, raising=False)
+    monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    resp = admin_client.patch(
+        "/admin/users/u-1",
+        json={"nickname": "UpdatedName"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["uuid"] == "u-1"
+    assert data["nickname"] == "UpdatedName"
+
+
+def test_admin_update_user_returns_404_when_not_found(admin_client, monkeypatch):
+    monkeypatch.setattr(admin_v1.UsersDAO, "update", _mock_update, raising=False)
+
+    resp = admin_client.patch(
+        "/admin/users/nonexistent-uuid",
+        json={"nickname": "Ghost"},
+    )
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# DELETE /admin/users/{user_uuid}
+# ---------------------------------------------------------------------------
+
+def test_admin_delete_user(admin_client, monkeypatch):
+    monkeypatch.setattr(admin_v1.UsersDAO, "delete", _mock_delete, raising=False)
+    monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    resp = admin_client.delete("/admin/users/u-1")
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+
+def test_admin_delete_user_returns_404(admin_client, monkeypatch):
+    monkeypatch.setattr(admin_v1.UsersDAO, "delete", _mock_delete, raising=False)
+
+    resp = admin_client.delete("/admin/users/nonexistent-uuid")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/users/{user_uuid}/disable
+# ---------------------------------------------------------------------------
+
+def test_admin_disable_user(admin_client, monkeypatch):
+    def capture_update(self, uuid, data):
+        return {"uuid": uuid, **data}
+
+    monkeypatch.setattr(admin_v1.UsersDAO, "update", capture_update, raising=False)
+    monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    resp = admin_client.post("/admin/users/u-1/disable")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["current_status"] == "disabled"
+
+
+def test_admin_disable_user_returns_404(admin_client, monkeypatch):
+    def capture_update(self, uuid, data):
+        if uuid == "nonexistent-uuid":
+            return None
+        return {"uuid": uuid, **data}
+
+    monkeypatch.setattr(admin_v1.UsersDAO, "update", capture_update, raising=False)
+
+    resp = admin_client.post("/admin/users/nonexistent-uuid/disable")
+    assert resp.status_code == 404
+
+
+def test_admin_disable_user_requires_superadmin(admin_client, monkeypatch):
+    admin_client.app.dependency_overrides[get_current_user] = lambda: {
+        "uuid": "u-normal",
+        "user_role": "normal-user",
+        "current_status": "normal",
+    }
+    resp = admin_client.post("/admin/users/u-1/disable")
+    assert resp.status_code == 403
