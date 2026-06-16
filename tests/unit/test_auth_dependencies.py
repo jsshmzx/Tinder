@@ -231,7 +231,7 @@ def test_get_temp_user_valid_token(monkeypatch):
 
     token = create_temp_token("user-temp-1", "register_complete", expires_minutes=10)
 
-    async def fake_find_by_uuid(uuid):
+    async def fake_find_by_uuid(self, uuid):
         if uuid == "user-temp-1":
             return {"uuid": uuid, "nickname": "TempUser"}
         return None

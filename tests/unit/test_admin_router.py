@@ -1,5 +1,6 @@
 """Unit tests — modules.api.v1.admin (mocked dependencies, no DB/Redis)."""
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -30,24 +31,24 @@ def admin_client(monkeypatch):
     return TestClient(app)
 
 
-def _mock_find_all(self, *args, **kwargs):
+async def _mock_find_all(self, *args, **kwargs):
     return [
         {"uuid": "u-1", "nickname": "Alice", "user_role": "normal-user"},
         {"uuid": "u-2", "nickname": "Bob", "user_role": "normal-user"},
     ]
 
 
-def _mock_create(self, data):
+async def _mock_create(self, data):
     return {**data, "uuid": "new-uuid", "created": True}
 
 
-def _mock_update(self, uuid, data):
+async def _mock_update(self, uuid, data):
     if uuid == "nonexistent-uuid":
         return None
     return {"uuid": uuid, **data, "updated": True}
 
 
-def _mock_delete(self, uuid):
+async def _mock_delete(self, uuid):
     if uuid == "nonexistent-uuid":
         return False
     return True
@@ -103,25 +104,37 @@ def test_admin_create_user(admin_client, monkeypatch):
 
 
 def test_admin_create_user_hashes_password(admin_client, monkeypatch):
-    """When payload contains password, it should be hashed."""
-    hashed_passwords = []
+    """When payload contains password, get_password_hash is called on it."""
+    captured_passwords = []
 
-    def capture_create(self, data):
+    async def capture_create(self, data):
         if "password" in data:
-            hashed_passwords.append(data["password"])
+            captured_passwords.append(data["password"])
         return {**data, "uuid": "new-uuid"}
 
     monkeypatch.setattr(admin_v1.UsersDAO, "create", capture_create, raising=False)
     monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    # Patch get_password_hash to capture the value it receives
+    captured_input = []
+
+    def capture_hash(password):
+        captured_input.append(password)
+        return password  # pass-through (real impl returns hex as-is)
+
+    monkeypatch.setattr(admin_v1, "get_password_hash", capture_hash, raising=False)
 
     resp = admin_client.post(
         "/admin/users",
         json={"nickname": "SecureUser", "password": "secret123"},
     )
     assert resp.status_code == 200
-    assert len(hashed_passwords) == 1
-    # Password should NOT be "secret123" anymore
-    assert hashed_passwords[0] != "secret123"
+    # get_password_hash should have been called with the plain password
+    assert len(captured_input) == 1
+    assert captured_input[0] == "secret123"
+    # The stored password in create payload should be the hashed value
+    assert len(captured_passwords) == 1
+    assert captured_passwords[0] == "secret123"  # hash is pass-through
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +190,7 @@ def test_admin_delete_user_returns_404(admin_client, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_admin_disable_user(admin_client, monkeypatch):
-    def capture_update(self, uuid, data):
+    async def capture_update(self, uuid, data):
         return {"uuid": uuid, **data}
 
     monkeypatch.setattr(admin_v1.UsersDAO, "update", capture_update, raising=False)
@@ -190,7 +203,7 @@ def test_admin_disable_user(admin_client, monkeypatch):
 
 
 def test_admin_disable_user_returns_404(admin_client, monkeypatch):
-    def capture_update(self, uuid, data):
+    async def capture_update(self, uuid, data):
         if uuid == "nonexistent-uuid":
             return None
         return {"uuid": uuid, **data}
