@@ -16,3 +16,4 @@ greenlet==3.5.0
 faker==40.15.0
 bcrypt==4.3.0
 uuid==1.30.0
+apscheduler==3.11.1

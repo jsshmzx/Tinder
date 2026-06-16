@@ -33,7 +33,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         custom_log("ERROR", f"PostgreSQL 连接失败: {exc}")
     redis_conn.start()
+
+    # 启动定时任务调度器
+    from core.cron.scheduler import start as start_scheduler, stop as stop_scheduler
+    start_scheduler()
+
     yield
+
+    # 停止定时任务调度器
+    stop_scheduler()
     await dispose_engine()
     custom_log("SUCCESS", "PostgreSQL 连接已关闭")
     redis_conn.stop()
