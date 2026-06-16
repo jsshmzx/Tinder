@@ -2,7 +2,7 @@ import json
 from typing import List
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
 
 from core.database.connection.pgsql import get_session
 from core.database.connection.redis import redis_conn
@@ -12,6 +12,7 @@ from core.security.rbac import role_includes
 from core.helper.ContainerCustomLog.index import custom_log
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+temp_token_scheme = HTTPBearer()
 
 USER_CACHE_PREFIX = "auth:user:"
 USER_CACHE_TTL_SECONDS = 60
@@ -108,3 +109,39 @@ class MinRoleChecker:
                 detail=f"操作未授权。需要的最小角色: {self.required_role}",
             )
         return user
+
+
+async def get_temp_user(
+    credentials: HTTPAuthorizationCredentials = Depends(temp_token_scheme),
+) -> dict:
+    """验证临时 token（purpose="register_complete"），返回用户字典。
+
+    与 get_current_user 区别：
+    - 不检查用户角色
+    - 要求 payload.purpose == "register_complete"
+    - 不读取 Redis 缓存（临时 token 一次性使用）
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="无效或已过期的临时凭证",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    payload = decode_access_token(credentials.credentials)
+    if payload is None:
+        raise credentials_exception
+
+    purpose = payload.get("purpose")
+    if purpose != "register_complete":
+        raise credentials_exception
+
+    user_uuid: str | None = payload.get("sub")
+    if user_uuid is None:
+        raise credentials_exception
+
+    user_dict = await UsersDAO().find_by_uuid(user_uuid)
+    if user_dict is None:
+        raise credentials_exception
+
+    user_dict.pop("password", None)
+    return user_dict
