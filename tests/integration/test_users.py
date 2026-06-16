@@ -1,8 +1,8 @@
 """Integration tests — User registration endpoints with real PostgreSQL + Redis backend.
 
 Covers:
-  * GET  /api/v1/users/register/questions — question sheet generation
-  * POST /api/v1/users/register           — full registration flow
+  * POST /api/v1/users/register/sheet/request — question sheet generation
+  * POST /api/v1/users/register              — full registration flow
 
 All tests use real DB & Redis (see conftest.py).
 Redis register-namespace keys are flushed before each test to ensure isolation.
@@ -20,12 +20,11 @@ from core.database.dao.users import User
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Redis key prefixes used by the registration module (mirror constants in users.py)
 _REG_KEY_PREFIXES = ("reg:qsheet:", "reg:qsheet_atm:", "reg:ip_atm:", "reg:name_atm:", "reg:ip_sheets:")
 
 
 def _flush_reg_keys(redis_client) -> None:
-    """删除 Redis 中所有以 'reg:' 开头的注册相关键，使每个测试从干净状态开始。"""
+    """Delete all Redis keys with 'reg:' prefix so each test starts clean."""
     for key in redis_client.scan_iter("reg:*"):
         redis_client.delete(key)
 
@@ -37,7 +36,7 @@ def _flush_reg_keys(redis_client) -> None:
 
 @pytest.fixture
 def active_questions(db_session_factory):
-    """在 register_questions 表中插入 5 道 active 测试题目，测试后清理。"""
+    """Insert 5 active questions into register_questions table, clean up after."""
     session = db_session_factory()
 
     questions = [
@@ -68,7 +67,7 @@ def active_questions(db_session_factory):
 
 @pytest.fixture(autouse=True)
 def flush_redis_before_each(redis_client):
-    """每个测试前清除注册相关的 Redis 键，确保计数器独立。"""
+    """Flush register-related Redis keys before each test for isolation."""
     _flush_reg_keys(redis_client)
     yield
     _flush_reg_keys(redis_client)
@@ -76,7 +75,7 @@ def flush_redis_before_each(redis_client):
 
 @pytest.fixture
 def registered_user_cleanup(db_session_factory):
-    """收集在测试中注册的用户 uuid，并在测试后删除它们。"""
+    """Collect user uuids created during tests and delete them after."""
     created_uuids: list[str] = []
     yield created_uuids
     if not created_uuids:
@@ -91,38 +90,37 @@ def registered_user_cleanup(db_session_factory):
 
 
 # ---------------------------------------------------------------------------
-# GET /api/v1/users/register/questions
+# POST /api/v1/users/register/sheet/request
 # ---------------------------------------------------------------------------
 
 
+def _request_sheet(integration_client) -> tuple[str, list[dict]]:
+    """Helper: request a question sheet and return (sheet_id, questions)."""
+    resp = integration_client.post("/api/v1/users/register/sheet/request")
+    assert resp.status_code == 200, f"Sheet request failed: {resp.text}"
+    data = resp.json()
+    return data["sheet_id"], data["questions"]
+
+
 def test_get_questions_returns_sheet_id_and_five_questions(integration_client, active_questions):
-    """成功获取问题表：返回 sheet_id 和 5 道不含答案的题目。"""
-    print("\n[TEST][Users] GET /api/v1/users/register/questions → 应返回 sheet_id 和 5 道题目")
+    """Requesting a sheet should return a sheet_id and 5 questions without answers."""
+    sheet_id, questions = _request_sheet(integration_client)
 
-    response = integration_client.get("/api/v1/users/register/questions")
-
-    assert response.status_code == 200
-    data = response.json()
-    assert "sheet_id" in data
-    assert isinstance(data["sheet_id"], str) and len(data["sheet_id"]) > 0
-    assert len(data["questions"]) == 5
-    for q in data["questions"]:
+    assert isinstance(sheet_id, str) and len(sheet_id) > 0
+    assert len(questions) == 5
+    for q in questions:
         assert "uuid" in q
         assert "question" in q
-        assert "answer" not in q, "响应中不应包含答案"
+        assert "answer" not in q, "Responses must not include answers"
 
 
 def test_get_questions_stores_sheet_in_redis(integration_client, active_questions, redis_client):
-    """问题表数据（含答案）应正确存入 Redis。"""
-    print("\n[TEST][Users] GET /api/v1/users/register/questions → 问题表应存入 Redis")
+    """Question sheet data (with answers) should be stored in Redis."""
+    sheet_id, _ = _request_sheet(integration_client)
 
-    response = integration_client.get("/api/v1/users/register/questions")
-    assert response.status_code == 200
-
-    sheet_id = response.json()["sheet_id"]
     import json
     raw = redis_client.get(f"reg:qsheet:{sheet_id}")
-    assert raw is not None, "Redis 中应存在问题表"
+    assert raw is not None, "Redis should contain the question sheet"
 
     sheet_data = json.loads(raw)
     assert "answers" in sheet_data
@@ -130,24 +128,19 @@ def test_get_questions_stores_sheet_in_redis(integration_client, active_question
 
 
 def test_get_questions_returns_503_when_no_active_questions(integration_client):
-    """题库无 active 题目时应返回 503。"""
-    print("\n[TEST][Users] GET /api/v1/users/register/questions → 无题目时应返回 503")
-
-    # 不插入任何题目，直接请求
-    response = integration_client.get("/api/v1/users/register/questions")
+    """When no active questions exist, should return 503."""
+    # Do not insert any questions
+    response = integration_client.post("/api/v1/users/register/sheet/request")
     assert response.status_code == 503
 
 
 def test_get_questions_enforces_per_ip_daily_limit(integration_client, active_questions, redis_client):
-    """IP 每日问题表申请次数达上限（4 次）后应返回 429。"""
-    print("\n[TEST][Users] GET /api/v1/users/register/questions → IP 超限应返回 429")
-
-    # 预置 Redis 计数器至上限
+    """IP daily sheet request limit (4/day) should return 429 when exceeded."""
     from datetime import date
     today = date.today().isoformat()
     redis_client.set(f"reg:ip_sheets:testclient:{today}", 4)
 
-    response = integration_client.get("/api/v1/users/register/questions")
+    response = integration_client.post("/api/v1/users/register/sheet/request")
     assert response.status_code == 429
 
 
@@ -156,16 +149,8 @@ def test_get_questions_enforces_per_ip_daily_limit(integration_client, active_qu
 # ---------------------------------------------------------------------------
 
 
-def _get_sheet(integration_client, active_questions):
-    """辅助：先获取一张问题表，返回 (sheet_id, questions)。"""
-    resp = integration_client.get("/api/v1/users/register/questions")
-    assert resp.status_code == 200, f"获取问题表失败: {resp.text}"
-    data = resp.json()
-    return data["sheet_id"], data["questions"]
-
-
 def _make_correct_answers(sheet_id: str, questions: list[dict], active_questions) -> list[dict]:
-    """根据问题表中的题目 uuid，从 fixture 中找到正确答案并构建答案列表。"""
+    """Build answer list with correct answers from the active_questions fixture."""
     uuid_to_answer = {q.uuid: q.answer for q in active_questions}
     return [
         {"question_uuid": q["uuid"], "answer": uuid_to_answer.get(q["uuid"], "wrong")}
@@ -176,10 +161,8 @@ def _make_correct_answers(sheet_id: str, questions: list[dict], active_questions
 def test_register_success_with_correct_answers(
     integration_client, active_questions, registered_user_cleanup
 ):
-    """答题全对、无重复学生 → 注册成功，返回 201 + access_token + 用户信息。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → 正常注册应返回 201 和 token")
-
-    sheet_id, questions = _get_sheet(integration_client, active_questions)
+    """All answers correct, no duplicate student → 201 with user info."""
+    sheet_id, questions = _request_sheet(integration_client)
     answers = _make_correct_answers(sheet_id, questions, active_questions)
 
     response = integration_client.post(
@@ -196,13 +179,13 @@ def test_register_success_with_correct_answers(
 
     assert response.status_code == 201
     data = response.json()
-    assert "access_token" in data
+    assert "temp_token" in data
     assert data["token_type"] == "bearer"
     assert data["user"]["real_name"] == "王小明"
     assert data["user"]["role"] == "normal-user"
     assert data["user"]["is_verified"] is False
     assert data["user"]["status"] == "normal"
-    assert len(data["access_token"]) > 0
+    assert len(data["temp_token"]) > 0
 
     registered_user_cleanup.append(data["user"]["uuid"])
 
@@ -210,10 +193,8 @@ def test_register_success_with_correct_answers(
 def test_register_user_fields_persisted_in_database(
     integration_client, active_questions, db_session_factory, registered_user_cleanup
 ):
-    """注册成功后，用户数据应正确持久化到数据库。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → 用户数据应写入数据库")
-
-    sheet_id, questions = _get_sheet(integration_client, active_questions)
+    """Registered user data should be persisted in the database."""
+    sheet_id, questions = _request_sheet(integration_client)
     answers = _make_correct_answers(sheet_id, questions, active_questions)
 
     response = integration_client.post(
@@ -246,10 +227,8 @@ def test_register_user_fields_persisted_in_database(
 
 
 def test_register_fails_with_wrong_answers(integration_client, active_questions):
-    """所有答案错误时（答对 0 道）应返回 400。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → 答案全错应返回 400")
-
-    sheet_id, questions = _get_sheet(integration_client, active_questions)
+    """All wrong answers (0 correct) should return 400."""
+    sheet_id, questions = _request_sheet(integration_client)
     wrong_answers = [
         {"question_uuid": q["uuid"], "answer": "完全错误的答案xyz"}
         for q in questions
@@ -274,17 +253,18 @@ def test_register_fails_with_wrong_answers(integration_client, active_questions)
 def test_register_passes_with_exactly_three_correct(
     integration_client, active_questions, registered_user_cleanup
 ):
-    """恰好答对 3 道应通过（≥ 3 道即可）。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → 答对 3 道应通过")
-
-    sheet_id, questions = _get_sheet(integration_client, active_questions)
+    """Exactly 3 correct answers should pass (threshold is >= 3)."""
+    sheet_id, questions = _request_sheet(integration_client)
     uuid_to_answer = {q.uuid: q.answer for q in active_questions}
 
-    # 前 3 道答对，后 2 道答错
+    # First 3 correct, last 2 wrong
     answers = []
     for i, q in enumerate(questions):
         if i < 3:
-            answers.append({"question_uuid": q["uuid"], "answer": uuid_to_answer.get(q["uuid"], "wrong")})
+            answers.append({
+                "question_uuid": q["uuid"],
+                "answer": uuid_to_answer.get(q["uuid"], "wrong"),
+            })
         else:
             answers.append({"question_uuid": q["uuid"], "answer": "wrong_answer_xyz"})
 
@@ -307,13 +287,11 @@ def test_register_passes_with_exactly_three_correct(
 def test_register_answers_are_case_insensitive(
     integration_client, active_questions, registered_user_cleanup
 ):
-    """答案校验应大小写不敏感。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → 答案大小写不敏感")
-
-    sheet_id, questions = _get_sheet(integration_client, active_questions)
+    """Answer matching should be case-insensitive."""
+    sheet_id, questions = _request_sheet(integration_client)
     uuid_to_answer = {q.uuid: q.answer for q in active_questions}
 
-    # 将正确答案全部转为大写提交
+    # Submit all answers in uppercase
     answers = [
         {"question_uuid": q["uuid"], "answer": uuid_to_answer.get(q["uuid"], "wrong").upper()}
         for q in questions
@@ -336,9 +314,7 @@ def test_register_answers_are_case_insensitive(
 
 
 def test_register_fails_with_nonexistent_sheet(integration_client, active_questions):
-    """不存在的 sheet_id 应返回 400。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → 无效 sheet_id 应返回 400")
-
+    """Non-existent sheet_id should return 400."""
     response = integration_client.post(
         "/api/v1/users/register",
         json={
@@ -361,11 +337,9 @@ def test_register_fails_with_nonexistent_sheet(integration_client, active_questi
 def test_register_fails_on_duplicate_student(
     integration_client, active_questions, registered_user_cleanup, redis_client
 ):
-    """相同 real_name + class 重复注册时应返回 409。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → 重复学生应返回 409")
-
-    # 第一次注册
-    sheet_id, questions = _get_sheet(integration_client, active_questions)
+    """Same real_name + class registered twice should return 409 on the second attempt."""
+    # First registration
+    sheet_id, questions = _request_sheet(integration_client)
     answers = _make_correct_answers(sheet_id, questions, active_questions)
 
     resp1 = integration_client.post(
@@ -382,11 +356,11 @@ def test_register_fails_on_duplicate_student(
     assert resp1.status_code == 201
     registered_user_cleanup.append(resp1.json()["user"]["uuid"])
 
-    # 重置注册相关限速计数器，使第二次请求能顺利到达重复检查步骤
+    # Flush rate-limit counters to allow the second request past throttling
     _flush_reg_keys(redis_client)
 
-    # 第二次注册（相同 real_name + class）
-    sheet_id2, questions2 = _get_sheet(integration_client, active_questions)
+    # Second registration (same real_name + class)
+    sheet_id2, questions2 = _request_sheet(integration_client)
     answers2 = _make_correct_answers(sheet_id2, questions2, active_questions)
 
     resp2 = integration_client.post(
@@ -405,14 +379,12 @@ def test_register_fails_on_duplicate_student(
 
 
 def test_register_enforces_ip_daily_limit(integration_client, active_questions, redis_client):
-    """IP 当日注册尝试次数达上限（10 次）后应返回 429。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → IP 超 10 次限制应返回 429")
-
+    """IP daily registration attempt limit (10/day) should return 429."""
     from datetime import date
     today = date.today().isoformat()
     redis_client.set(f"reg:ip_atm:testclient:{today}", 10)
 
-    sheet_id, questions = _get_sheet(integration_client, active_questions)
+    sheet_id, questions = _request_sheet(integration_client)
     answers = _make_correct_answers(sheet_id, questions, active_questions)
 
     response = integration_client.post(
@@ -431,16 +403,14 @@ def test_register_enforces_ip_daily_limit(integration_client, active_questions, 
 
 
 def test_register_enforces_name_daily_limit(integration_client, active_questions, redis_client):
-    """同一 real_name 当日尝试次数达上限（3 次）后应返回 429。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → real_name 超 3 次限制应返回 429")
-
+    """Same real_name daily limit (3/day) should return 429."""
     from datetime import date
     real_name = "名字限制测试"
     name_hex = real_name.encode("utf-8").hex()
     today = date.today().isoformat()
     redis_client.set(f"reg:name_atm:{name_hex}:{today}", 3)
 
-    sheet_id, questions = _get_sheet(integration_client, active_questions)
+    sheet_id, questions = _request_sheet(integration_client)
     answers = _make_correct_answers(sheet_id, questions, active_questions)
 
     response = integration_client.post(
@@ -459,10 +429,8 @@ def test_register_enforces_name_daily_limit(integration_client, active_questions
 
 
 def test_register_enforces_sheet_attempt_limit(integration_client, active_questions, redis_client):
-    """同一问题表尝试次数达上限（3 次）后应返回 400。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → 问题表超 3 次限制应返回 400")
-
-    sheet_id, questions = _get_sheet(integration_client, active_questions)
+    """Same sheet exceeding max attempts (3) should return 400."""
+    sheet_id, questions = _request_sheet(integration_client)
     redis_client.set(f"reg:qsheet_atm:{sheet_id}", 3)
 
     wrong_answers = [
@@ -486,10 +454,8 @@ def test_register_enforces_sheet_attempt_limit(integration_client, active_questi
 
 
 def test_register_rejects_invalid_classtype(integration_client, active_questions):
-    """classtype 不合法（非 high-school / university）时应返回 422。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → 非法 classtype 应返回 422")
-
-    sheet_id, questions = _get_sheet(integration_client, active_questions)
+    """Invalid classtype should return 422."""
+    sheet_id, questions = _request_sheet(integration_client)
     answers = _make_correct_answers(sheet_id, questions, active_questions)
 
     response = integration_client.post(
@@ -509,10 +475,8 @@ def test_register_rejects_invalid_classtype(integration_client, active_questions
 def test_register_sheet_deleted_from_redis_after_success(
     integration_client, active_questions, redis_client, registered_user_cleanup
 ):
-    """注册成功后问题表应从 Redis 中删除（防止重用）。"""
-    print("\n[TEST][Users] POST /api/v1/users/register → 成功后问题表应从 Redis 删除")
-
-    sheet_id, questions = _get_sheet(integration_client, active_questions)
+    """Question sheet should be removed from Redis after successful registration."""
+    sheet_id, questions = _request_sheet(integration_client)
     answers = _make_correct_answers(sheet_id, questions, active_questions)
 
     response = integration_client.post(
@@ -529,5 +493,5 @@ def test_register_sheet_deleted_from_redis_after_success(
     assert response.status_code == 201
     registered_user_cleanup.append(response.json()["user"]["uuid"])
 
-    # 问题表应已从 Redis 删除
+    # Sheet should be deleted from Redis
     assert redis_client.get(f"reg:qsheet:{sheet_id}") is None
