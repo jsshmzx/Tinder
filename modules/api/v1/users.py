@@ -523,6 +523,12 @@ class CompleteRegisterRequest(BaseModel):
         return v
 
 
+class DeleteAccountRequest(BaseModel):
+    """账号注销请求体 — 需密码确认。"""
+
+    password: str = Field(..., description="SHA256 双重哈希后的 64 字符 hex 字符串")
+
+
 class UpdateProfileRequest(BaseModel):
     """修改个人信息请求体，所有字段均为可选，但至少需要提供一个。"""
 
@@ -759,3 +765,99 @@ async def update_profile(
         "is_verified": updated["is_verified"],
         "status": updated["current_status"],
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /users/me — 完整用户信息
+# ---------------------------------------------------------------------------
+
+@router.get("/me", response_model=dict[str, Any])
+async def read_users_me(current_user: dict = Depends(get_current_user)):
+    """返回当前用户的完整个人信息（非敏感字段）。
+
+    注意：不从 Redis 缓存读取，直接从数据库获取最新数据。
+    排除字段：password, id, other_info, deletion_scheduled_at, last_login_ip
+    """
+    user_uuid: str = current_user["uuid"]
+    user = await UsersDAO().find_by_uuid(user_uuid)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="用户不存在",
+        )
+
+    return {
+        "uuid": user.get("uuid"),
+        "username": user.get("username"),
+        "email": user.get("email"),
+        "avatar_url": user.get("avatar_url"),
+        "nickname": user.get("nickname"),
+        "real_name": user.get("real_name"),
+        "class": user.get("class"),
+        "class_type": user.get("class_type"),
+        "joined_at": str(user.get("joined_at")) if user.get("joined_at") else None,
+        "current_status": user.get("current_status"),
+        "last_login_at": str(user.get("last_login_at")) if user.get("last_login_at") else None,
+        "score": user.get("score"),
+        "user_role": user.get("user_role"),
+        "title": user.get("title"),
+        "invited_by": user.get("invited_by"),
+        "views": user.get("views"),
+        "is_verified": user.get("is_verified"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# DELETE /users/me — 账号注销（30 天冷却期）
+# ---------------------------------------------------------------------------
+
+@router.delete("/me", response_model=dict[str, Any])
+async def delete_account(
+    body: DeleteAccountRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """注销当前账号，进入 30 天冷却期。
+
+    30 天内登录自动恢复；超期后由定时清理任务物理删除。
+    需要密码确认。
+    """
+    user_uuid: str = current_user["uuid"]
+
+    # 验证账号状态
+    status_val = current_user.get("current_status")
+    if status_val not in (None, "normal"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="账号状态异常，无法注销",
+        )
+
+    # 验证密码
+    async with get_session() as session:
+        stored_hash = await UsersDAO.find_password_hash(session, user_uuid)
+
+    if not stored_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="账号未设置密码，无法验证身份",
+        )
+
+    if not verify_password(body.password, stored_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="密码不正确",
+        )
+
+    # 设置冷却期
+    deletion_time = datetime.now(timezone.utc) + timedelta(days=30)
+    await UsersDAO().update(user_uuid, {
+        "current_status": "pending_deletion",
+        "deletion_scheduled_at": deletion_time,
+    })
+
+    # 撤销所有 refresh token，强制重新登录
+    await RefreshTokensDAO.revoke_all_for_user(user_uuid)
+    invalidate_user_cache(user_uuid)
+
+    custom_log("SUCCESS", f"[DeleteAccount] uuid={user_uuid} 已进入注销冷却期，预定删除时间={deletion_time.isoformat()}")
+
+    return {"message": "账号已进入注销冷却期，30天内登录可恢复"}
