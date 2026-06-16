@@ -38,6 +38,7 @@ class User(Base):
     other_info: Mapped[Any | None] = mapped_column(JSONB)
     is_verified: Mapped[bool | None] = mapped_column(Boolean)
     password: Mapped[str | None] = mapped_column(Text)
+    deletion_scheduled_at: Mapped[datetime | None] = mapped_column(TIMESTAMP)
 
 
 class UsersDAO(BaseDAO):
@@ -100,3 +101,11 @@ class UsersDAO(BaseDAO):
         )
         row = result.first()
         return row[0] if row else None
+
+    @staticmethod
+    async def find_by_username(session: AsyncSession, username: str) -> User | None:
+        """根据 username 精确查找用户，不存在返回 None。"""
+        result = await session.scalars(
+            select(User).where(User.username == username)
+        )
+        return result.first()
