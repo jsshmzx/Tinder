@@ -33,6 +33,7 @@ from core.database.connection.redis import redis_conn
 from core.database.dao.refresh_tokens import RefreshTokensDAO
 from core.database.dao.register_questions import RegisterQuestionsDAO
 from core.database.dao.users import UsersDAO
+from core.config import settings
 from core.helper.ContainerCustomLog.index import custom_log
 from core.middleware.auth.dependencies import get_current_user, get_temp_user, invalidate_user_cache
 from core.middleware.firewall.helpers import get_client_ip
@@ -49,16 +50,6 @@ _REDIS_QSHEET_ATTEMPTS = "reg:qsheet_atm:"    # reg:qsheet_atm:{sheet_id} → in
 _REDIS_IP_ATTEMPTS = "reg:ip_atm:"            # reg:ip_atm:{ip}:{date} → int
 _REDIS_NAME_ATTEMPTS = "reg:name_atm:"        # reg:name_atm:{name}:{date} → int
 _REDIS_IP_SHEETS = "reg:ip_sheets:"           # reg:ip_sheets:{ip}:{date} → int
-
-# 限额配置
-_MAX_IP_ATTEMPTS_PER_DAY = 10     # IP 每日最大注册尝试次数
-_MAX_NAME_ATTEMPTS_PER_DAY = 3    # 同一 real_name 每日最大尝试次数
-_MAX_SHEET_ATTEMPTS = 3           # 每张问题表最大回答尝试次数
-_MAX_SHEETS_PER_IP_PER_DAY = 4   # 每个 IP 每天最多获取的问题表数（含首张）
-_CORRECT_THRESHOLD = 3            # 答对题目数阈值
-_QUESTION_COUNT = 5               # 每张问题表的题目数量
-_SHEET_TTL_SECONDS = 86400        # 问题表在 Redis 中的过期时间（24 小时）
-_MAX_PWD_CHG_ATTEMPTS_PER_DAY = 10  # 每个用户每天最多尝试修改密码次数
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +127,7 @@ def _redis_incr_with_ttl(client, key: str, ttl: int) -> int:
 async def request_register_sheet(request: Request):
     """随机生成一张注册问题表并存入 Redis，返回题目信息（不含答案）。
 
-    每个 IP 每天最多获取 {_MAX_SHEETS_PER_IP_PER_DAY} 张问题表。
+    每个 IP 每天最多获取 {settings.REG_MAX_SHEETS_PER_IP_PER_DAY} 张问题表。
     """
     client_ip = get_client_ip(request)
     redis = redis_conn.get_client()
@@ -146,20 +137,20 @@ async def request_register_sheet(request: Request):
         today = _today_str()
         sheets_key = f"{_REDIS_IP_SHEETS}{client_ip}:{today}"
         current_sheets = _redis_get_int(redis, sheets_key)
-        if current_sheets >= _MAX_SHEETS_PER_IP_PER_DAY:
+        if current_sheets >= settings.REG_MAX_SHEETS_PER_IP_PER_DAY:
             custom_log(
                 "WARNING",
-                f"[Register] IP {client_ip} 今日问题表申请次数已达上限 {_MAX_SHEETS_PER_IP_PER_DAY}",
+                f"[Register] IP {client_ip} 今日问题表申请次数已达上限 {settings.REG_MAX_SHEETS_PER_IP_PER_DAY}",
             )
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"今日问题表申请次数已达上限（{_MAX_SHEETS_PER_IP_PER_DAY} 张），请明日再试",
+                detail=f"今日问题表申请次数已达上限（{settings.REG_MAX_SHEETS_PER_IP_PER_DAY} 张），请明日再试",
             )
 
     # ----- 随机抽取题目 -----
-    questions = await RegisterQuestionsDAO.find_random_active(count=_QUESTION_COUNT)
-    if len(questions) < _QUESTION_COUNT:
-        custom_log("WARNING", f"[Register] 题库中 active 题目不足 {_QUESTION_COUNT} 道，实际获取 {len(questions)} 道")
+    questions = await RegisterQuestionsDAO.find_random_active(count=settings.REG_QUESTION_COUNT)
+    if len(questions) < settings.REG_QUESTION_COUNT:
+        custom_log("WARNING", f"[Register] 题库中 active 题目不足 {settings.REG_QUESTION_COUNT} 道，实际获取 {len(questions)} 道")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="题库暂时不可用，请稍后再试",
@@ -179,10 +170,10 @@ async def request_register_sheet(request: Request):
             redis.set(
                 f"{_REDIS_QSHEET_PREFIX}{sheet_id}",
                 json.dumps(sheet_data, ensure_ascii=False),
-                ex=_SHEET_TTL_SECONDS,
+                ex=settings.REG_SHEET_TTL_SECONDS,
             )
             # 递增 IP 今日问题表计数
-            _redis_incr_with_ttl(redis, f"{_REDIS_IP_SHEETS}{client_ip}:{_today_str()}", _SHEET_TTL_SECONDS)
+            _redis_incr_with_ttl(redis, f"{_REDIS_IP_SHEETS}{client_ip}:{_today_str()}", settings.REG_SHEET_TTL_SECONDS)
         except Exception as exc:
             custom_log("ERROR", f"[Register] Redis 写入问题表失败: {exc}")
             raise HTTPException(
@@ -236,11 +227,11 @@ async def register_user(body: RegisterRequest, request: Request):
 
     ip_attempts_key = f"{_REDIS_IP_ATTEMPTS}{client_ip}:{today}"
     ip_attempts = _redis_get_int(redis, ip_attempts_key)
-    if ip_attempts >= _MAX_IP_ATTEMPTS_PER_DAY:
+    if ip_attempts >= settings.REG_MAX_IP_ATTEMPTS_PER_DAY:
         custom_log("WARNING", f"[Register] IP {client_ip} 今日注册尝试次数已达上限")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"该 IP 今日注册尝试次数已达上限（{_MAX_IP_ATTEMPTS_PER_DAY} 次），请明日再试",
+            detail=f"该 IP 今日注册尝试次数已达上限（{settings.REG_MAX_IP_ATTEMPTS_PER_DAY} 次），请明日再试",
         )
 
     # ----------------------------------------------------------------
@@ -250,11 +241,11 @@ async def register_user(body: RegisterRequest, request: Request):
     name_key_part = body.real_name.encode("utf-8").hex()
     name_attempts_key = f"{_REDIS_NAME_ATTEMPTS}{name_key_part}:{today}"
     name_attempts = _redis_get_int(redis, name_attempts_key)
-    if name_attempts >= _MAX_NAME_ATTEMPTS_PER_DAY:
+    if name_attempts >= settings.REG_MAX_NAME_ATTEMPTS_PER_DAY:
         custom_log("WARNING", f"[Register] real_name '{body.real_name}' 今日尝试次数已达上限")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"该姓名今日注册尝试次数已达上限（{_MAX_NAME_ATTEMPTS_PER_DAY} 次），请明日再试",
+            detail=f"该姓名今日注册尝试次数已达上限（{settings.REG_MAX_NAME_ATTEMPTS_PER_DAY} 次），请明日再试",
         )
 
     # ----------------------------------------------------------------
@@ -288,18 +279,18 @@ async def register_user(body: RegisterRequest, request: Request):
         )
 
     sheet_attempts = _redis_get_int(redis, sheet_attempts_key)
-    if sheet_attempts >= _MAX_SHEET_ATTEMPTS:
+    if sheet_attempts >= settings.REG_MAX_SHEET_ATTEMPTS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"该问题表尝试次数已达上限（{_MAX_SHEET_ATTEMPTS} 次），请换一张问题表",
+            detail=f"该问题表尝试次数已达上限（{settings.REG_MAX_SHEET_ATTEMPTS} 次），请换一张问题表",
         )
 
     # ----------------------------------------------------------------
     # 递增各计数器（在校验答案前，防止暴力枚举）
     # ----------------------------------------------------------------
-    _redis_incr_with_ttl(redis, ip_attempts_key, _SHEET_TTL_SECONDS)
-    _redis_incr_with_ttl(redis, name_attempts_key, _SHEET_TTL_SECONDS)
-    _redis_incr_with_ttl(redis, sheet_attempts_key, _SHEET_TTL_SECONDS)
+    _redis_incr_with_ttl(redis, ip_attempts_key, settings.REG_SHEET_TTL_SECONDS)
+    _redis_incr_with_ttl(redis, name_attempts_key, settings.REG_SHEET_TTL_SECONDS)
+    _redis_incr_with_ttl(redis, sheet_attempts_key, settings.REG_SHEET_TTL_SECONDS)
 
     # ----------------------------------------------------------------
     # 步骤 4：校验答案（大小写不敏感，至少答对 3 题）
@@ -312,17 +303,17 @@ async def register_user(body: RegisterRequest, request: Request):
             correct_count += 1
 
     custom_log(
-        "SUCCESS" if correct_count >= _CORRECT_THRESHOLD else "WARNING",
+        "SUCCESS" if correct_count >= settings.REG_CORRECT_THRESHOLD else "WARNING",
         f"[Register] IP={client_ip} real_name='{body.real_name}' "
-        f"sheet_id={body.sheet_id} 答对 {correct_count}/{_QUESTION_COUNT}",
+        f"sheet_id={body.sheet_id} 答对 {correct_count}/{settings.REG_QUESTION_COUNT}",
     )
 
-    if correct_count < _CORRECT_THRESHOLD:
+    if correct_count < settings.REG_CORRECT_THRESHOLD:
         # sheet_attempts 已在步骤 3 之后递增，所以此处加 1 反映本次消耗后的最新值
-        remaining = _MAX_SHEET_ATTEMPTS - (sheet_attempts + 1)
+        remaining = settings.REG_MAX_SHEET_ATTEMPTS - (sheet_attempts + 1)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"答题未通过（答对 {correct_count} 道，需至少 {_CORRECT_THRESHOLD} 道）。"
+            detail=f"答题未通过（答对 {correct_count} 道，需至少 {settings.REG_CORRECT_THRESHOLD} 道）。"
                    f"该问题表剩余尝试次数：{max(remaining, 0)}",
         )
 
@@ -375,7 +366,7 @@ async def register_user(body: RegisterRequest, request: Request):
     # ----------------------------------------------------------------
     # 步骤 7：颁发临时 token（仅用于 Step 2 完成注册）
     # ----------------------------------------------------------------
-    temp_token = create_temp_token(subject=new_uuid, purpose="register_complete", expires_minutes=15)
+    temp_token = create_temp_token(subject=new_uuid, purpose="register_complete", expires_minutes=settings.TEMP_TOKEN_EXPIRE_MINUTES)
     custom_log("SUCCESS", f"[Register] 新用户答题通过 uuid={new_uuid} real_name='{body.real_name}'")
 
     return {
@@ -570,7 +561,7 @@ async def change_password(
 
     校验流程：
     1. 账号状态正常（未被封禁）
-    2. Redis 限流：每用户每天最多 {_MAX_PWD_CHG_ATTEMPTS_PER_DAY} 次
+    2. Redis 限流：每用户每天最多 {settings.MAX_PWD_CHG_ATTEMPTS_PER_DAY} 次
     3. 账号已设置密码
     4. 旧密码验证正确
     5. 新密码与旧密码不相同
@@ -589,21 +580,21 @@ async def change_password(
         )
 
     # ----------------------------------------------------------------
-    # 步骤 2：Redis 限流（每用户每天最多尝试 _MAX_PWD_CHG_ATTEMPTS_PER_DAY 次）
+    # 步骤 2：Redis 限流（每用户每天最多尝试 settings.MAX_PWD_CHG_ATTEMPTS_PER_DAY 次）
     # ----------------------------------------------------------------
     redis = redis_conn.get_client()
     if redis is not None:
         today = _today_str()
         pwd_chg_key = f"user:pwd_chg:{user_uuid}:{today}"
         attempts = _redis_get_int(redis, pwd_chg_key)
-        if attempts >= _MAX_PWD_CHG_ATTEMPTS_PER_DAY:
+        if attempts >= settings.MAX_PWD_CHG_ATTEMPTS_PER_DAY:
             custom_log("WARNING", f"[ChangePassword] uuid={user_uuid} 今日修改密码次数已达上限")
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"今日修改密码次数已达上限（{_MAX_PWD_CHG_ATTEMPTS_PER_DAY} 次），请明日再试",
+                detail=f"今日修改密码次数已达上限（{settings.MAX_PWD_CHG_ATTEMPTS_PER_DAY} 次），请明日再试",
             )
         # 在验证前递增计数器，防止暴力枚举
-        _redis_incr_with_ttl(redis, pwd_chg_key, _SHEET_TTL_SECONDS)
+        _redis_incr_with_ttl(redis, pwd_chg_key, settings.REG_SHEET_TTL_SECONDS)
 
     # ----------------------------------------------------------------
     # 步骤 3：检查账号是否已设置密码
@@ -849,7 +840,7 @@ async def delete_account(
         )
 
     # 设置冷却期
-    deletion_time = datetime.now(timezone.utc) + timedelta(days=30)
+    deletion_time = datetime.now(timezone.utc) + timedelta(days=settings.ACCOUNT_DELETION_GRACE_DAYS)
     await UsersDAO().update(user_uuid, {
         "current_status": "pending_deletion",
         "deletion_scheduled_at": deletion_time,

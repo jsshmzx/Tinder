@@ -1,14 +1,14 @@
-import os
 import threading
 
 import redis as redis_lib
 from redis import Redis
 
+from core.config import settings
 from core.helper.ContainerCustomLog.index import custom_log
 
 # 重连间隔（秒），每次失败后指数增长，最大不超过 _MAX_RETRY_INTERVAL
-_INITIAL_RETRY_INTERVAL = 2
-_MAX_RETRY_INTERVAL = 60
+_INITIAL_RETRY_INTERVAL = settings.REDIS_INITIAL_RETRY_INTERVAL
+_MAX_RETRY_INTERVAL = settings.REDIS_MAX_RETRY_INTERVAL
 
 
 class RedisConnectionManager:
@@ -56,7 +56,7 @@ class RedisConnectionManager:
     # ------------------------------------------------------------------
 
     def _get_url(self) -> str:
-        url = os.getenv("REDIS_URL")
+        url = settings.REDIS_URL
         if not url:
             raise EnvironmentError("环境变量 REDIS_URL 未设置")
         return url
@@ -102,8 +102,8 @@ class RedisConnectionManager:
         """后台线程：定期检查连接健康，断开时自动重连。"""
         retry_interval = _INITIAL_RETRY_INTERVAL
         while not self._stop_event.is_set():
-            # 每 10 秒做一次心跳检测
-            self._stop_event.wait(timeout=10)
+            # 心跳检测
+            self._stop_event.wait(timeout=settings.REDIS_HEARTBEAT_INTERVAL)
             if self._stop_event.is_set():
                 break
             if not self._is_alive():

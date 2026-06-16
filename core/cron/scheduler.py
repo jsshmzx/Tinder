@@ -2,6 +2,7 @@
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from core.config import settings
 from core.helper.ContainerCustomLog.index import custom_log
 
 scheduler = AsyncIOScheduler()
@@ -14,7 +15,7 @@ def start() -> None:
     scheduler.add_job(
         cleanup_expired_deletions,
         trigger="interval",
-        hours=1,
+        hours=settings.CRON_CLEANUP_INTERVAL_HOURS,
         id="cleanup_expired_deletions",
         replace_existing=True,
     )

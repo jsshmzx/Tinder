@@ -1,12 +1,14 @@
 import re
 
+from core.config import settings
+
 # ---------------------------------------------------------------------------
-# 配置常量
+# 配置常量（从 .env 读取，未设置时使用默认值）
 # ---------------------------------------------------------------------------
 
-_MAX_REQUESTS_PER_SECOND = 20
-_BAN_THRESHOLD = 10
-_BAN_DURATION = 86400  # 24 小时
+_MAX_REQUESTS_PER_SECOND = settings.FW_MAX_REQUESTS_PER_SECOND
+_BAN_THRESHOLD = settings.FW_BAN_THRESHOLD
+_BAN_DURATION = settings.FW_BAN_DURATION  # 秒
 
 # Redis key 前缀
 _KEY_RATE = "fw:rate:"

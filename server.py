@@ -3,21 +3,20 @@ import uvicorn, os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 
 import platform
 
+from core.config import settings
 from core.helper.ContainerCustomLog.index import custom_log
 from core.middleware.firewall.index import FirewallMiddleware
 from core.database.connection.redis import redis_conn
 from core.database.connection.pgsql import dispose_engine, get_session
 
-# 加载环境变量
-load_dotenv()
-os.environ['TZ'] = 'Asia/Shanghai' # 设置时区为上海
+# 设置时区
+os.environ['TZ'] = settings.TZ
 
 # 生产环境禁用API文档
-APP_ENV = os.getenv('APP_ENV', 'development').lower()
+APP_ENV = settings.APP_ENV
 DOCS_URL = '/docs' if APP_ENV == 'development' else None
 REDOC_URL = '/redoc' if APP_ENV == 'development' else None
 
@@ -53,8 +52,8 @@ app = FastAPI(lifespan=lifespan, docs_url=DOCS_URL, redoc_url=REDOC_URL)
 # 配置CORS中间件
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.CORS_ALLOW_ORIGINS,
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -65,26 +64,25 @@ from modules.index.index import app as index_router
 from modules.api.v1.router import router as api_v1_router
 # 导入路由
 app.include_router(index_router)
-app.include_router(api_v1_router, prefix="/api/v1")
-
+app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
 
 # 尝试启动服务器
 custom_log("SUCCESS", "Tinder服务器启动中...")
 custom_log("SUCCESS", f"===================================================")
 custom_log("SUCCESS", f"Python版本: {platform.python_version()}")
-custom_log("SUCCESS", f"当前APP_ENV: {os.getenv('APP_ENV', 'not set')}")
+custom_log("SUCCESS", f"当前APP_ENV: {settings.APP_ENV}")
 custom_log("SUCCESS", f"===================================================")
 
 if __name__ == "__main__":
     try:
         # 根据环境变量设置日志级别
         log_level = "info" if APP_ENV == "development" else "warning"
-        
+
         uvicorn.run(
             app="server:app",
-            host='0.0.0.0',
-            port=1912,
-            reload=True,
+            host=settings.SERVER_HOST,
+            port=settings.SERVER_PORT,
+            reload=settings.SERVER_RELOAD,
             access_log=False,
             log_level=log_level
         )

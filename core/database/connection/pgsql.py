@@ -8,7 +8,6 @@
         session.add(obj)
 """
 
-import os
 from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import (
@@ -17,6 +16,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+
+from core.config import settings
 
 __all__ = ["Base", "get_session", "dispose_engine"]
 
@@ -40,7 +41,7 @@ _session_factory = None
 def _get_engine():
     global _engine
     if _engine is None:
-        url = os.environ.get("DATABASE_URL")
+        url = settings.DATABASE_URL
         if not url:
             raise EnvironmentError("环境变量 DATABASE_URL 未设置")
         # 使用 asyncpg 异步驱动
@@ -48,7 +49,7 @@ def _get_engine():
             url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
         elif url.startswith("postgresql+psycopg2://"):
             url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
-        _engine = create_async_engine(url, pool_pre_ping=True)
+        _engine = create_async_engine(url, pool_pre_ping=settings.DB_POOL_PRE_PING)
     return _engine
 
 

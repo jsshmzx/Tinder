@@ -4,6 +4,7 @@ from typing import List
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
 
+from core.config import settings
 from core.database.connection.pgsql import get_session
 from core.database.connection.redis import redis_conn
 from core.database.dao.users import UsersDAO, User
@@ -11,11 +12,11 @@ from core.security.jwt_handler import decode_access_token
 from core.security.rbac import role_includes
 from core.helper.ContainerCustomLog.index import custom_log
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/login")
 temp_token_scheme = HTTPBearer()
 
 USER_CACHE_PREFIX = "auth:user:"
-USER_CACHE_TTL_SECONDS = 60
+USER_CACHE_TTL_SECONDS = settings.AUTH_USER_CACHE_TTL_SECONDS
 
 
 def _get_user_cache_key(user_uuid: str) -> str:

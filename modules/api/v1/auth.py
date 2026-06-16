@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
+from core.config import settings
 from core.database.connection.pgsql import get_session
 from core.database.dao.users import UsersDAO
 from core.database.dao.refresh_tokens import RefreshTokensDAO
@@ -14,11 +15,6 @@ from core.middleware.auth.dependencies import get_current_user
 from core.helper.ContainerCustomLog.index import custom_log
 
 router = APIRouter(prefix="/auth", tags=["Auth v1"])
-
-# 登录限流配置
-_LOGIN_MAX_ATTEMPTS_PER_IP_PER_MINUTE = 20
-_LOGIN_MAX_ATTEMPTS_PER_USERNAME_PER_MINUTE = 5
-_LOGIN_RATE_WINDOW_SECONDS = 60
 
 
 def _login_redis_incr(key: str, ttl: int) -> int:
@@ -50,15 +46,15 @@ async def login(request: Request, body: LoginRequest):
     ip_key = f"login_atm:ip:{client_ip}:min"
     un_key = f"login_atm:un:{body.username}:min"
 
-    ip_count = _login_redis_incr(ip_key, _LOGIN_RATE_WINDOW_SECONDS)
-    un_count = _login_redis_incr(un_key, _LOGIN_RATE_WINDOW_SECONDS)
+    ip_count = _login_redis_incr(ip_key, settings.LOGIN_RATE_WINDOW_SECONDS)
+    un_count = _login_redis_incr(un_key, settings.LOGIN_RATE_WINDOW_SECONDS)
 
-    if ip_count > _LOGIN_MAX_ATTEMPTS_PER_IP_PER_MINUTE:
+    if ip_count > settings.LOGIN_MAX_ATTEMPTS_PER_IP_PER_MINUTE:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="登录尝试过于频繁，请稍后再试",
         )
-    if un_count > _LOGIN_MAX_ATTEMPTS_PER_USERNAME_PER_MINUTE:
+    if un_count > settings.LOGIN_MAX_ATTEMPTS_PER_USERNAME_PER_MINUTE:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="登录尝试过于频繁，请稍后再试",

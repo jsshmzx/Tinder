@@ -4,6 +4,7 @@ from sqlalchemy import Integer, Text, delete, select
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
+from core.config import settings
 from core.database.connection.pgsql import Base, get_session
 from core.database.dao.base import BaseDAO
 
@@ -78,8 +79,8 @@ class RefreshTokensDAO(BaseDAO):
 
     @staticmethod
     async def _cleanup_old_revoked() -> None:
-        """删除吊销超过 7 天的旧 token 记录。"""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+        """删除吊销超过 N 天的旧 token 记录。"""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=settings.REFRESH_TOKEN_CLEANUP_DAYS)
         async with get_session() as session:
             await session.execute(
                 delete(RefreshToken).where(

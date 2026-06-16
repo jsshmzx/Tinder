@@ -13,15 +13,11 @@ from modules.api.v1 import auth as auth_v1
 
 
 def test_jwt_handler_raises_when_secret_key_missing(monkeypatch):
-    from core.security.jwt_handler import _get_jwt_secret, create_access_token
-    # Clear LRU cache so the secret is re-read from env
-    _get_jwt_secret.cache_clear()
-    monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+    from core.security.jwt_handler import create_access_token
+    monkeypatch.setattr("core.config.settings.JWT_SECRET_KEY", "")
     with pytest.raises(RuntimeError, match="JWT_SECRET_KEY"):
         create_access_token(subject="test")
-    # Restore so subsequent tests work
-    monkeypatch.setenv("JWT_SECRET_KEY", "test-only-secret-key-do-not-use-in-prod")
-    _get_jwt_secret.cache_clear()
+    monkeypatch.setattr("core.config.settings.JWT_SECRET_KEY", "test-only-secret-key-do-not-use-in-prod")
 
 
 def test_generate_refresh_token_returns_distinct_plaintext_and_hash():

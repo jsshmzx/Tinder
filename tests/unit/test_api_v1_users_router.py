@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from core.config import settings
 from modules.api.v1 import users as users_v1
 
 
@@ -96,7 +97,7 @@ def test_get_questions_returns_429_when_ip_at_limit(client, monkeypatch):
     monkeypatch.setattr(
         users_v1,
         "_redis_get_int",
-        lambda client, key: users_v1._MAX_SHEETS_PER_IP_PER_DAY,
+        lambda client, key: settings.REG_MAX_SHEETS_PER_IP_PER_DAY,
     )
 
     response = client.get("/api/v1/users/register/questions")
@@ -242,13 +243,13 @@ def test_register_returns_429_when_ip_limit_reached(client, monkeypatch):
     """IP 今日注册尝试次数达上限时返回 429。"""
     questions = _fake_questions()
     sheet_data = _build_sheet_data(questions)
-    mock_redis, _ = _build_mock_redis(sheet_data, ip_count=users_v1._MAX_IP_ATTEMPTS_PER_DAY)
+    mock_redis, _ = _build_mock_redis(sheet_data, ip_count=settings.REG_MAX_IP_ATTEMPTS_PER_DAY)
 
     monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: mock_redis))
     monkeypatch.setattr(
         users_v1,
         "_redis_get_int",
-        lambda client, key: users_v1._MAX_IP_ATTEMPTS_PER_DAY if "ip_atm" in key else 0,
+        lambda client, key: settings.REG_MAX_IP_ATTEMPTS_PER_DAY if "ip_atm" in key else 0,
     )
 
     response = client.post("/api/v1/users/register", json=_VALID_REGISTER_BODY)
@@ -260,14 +261,14 @@ def test_register_returns_429_when_name_limit_reached(client, monkeypatch):
     """real_name 今日尝试次数达上限时返回 429。"""
     questions = _fake_questions()
     sheet_data = _build_sheet_data(questions)
-    mock_redis, _ = _build_mock_redis(sheet_data, name_count=users_v1._MAX_NAME_ATTEMPTS_PER_DAY)
+    mock_redis, _ = _build_mock_redis(sheet_data, name_count=settings.REG_MAX_NAME_ATTEMPTS_PER_DAY)
 
     monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: mock_redis))
     monkeypatch.setattr(
         users_v1,
         "_redis_get_int",
         lambda client, key: (
-            users_v1._MAX_NAME_ATTEMPTS_PER_DAY if "name_atm" in key else 0
+            settings.REG_MAX_NAME_ATTEMPTS_PER_DAY if "name_atm" in key else 0
         ),
     )
 
@@ -295,13 +296,13 @@ def test_register_returns_400_when_sheet_attempts_exceeded(client, monkeypatch):
     """问题表尝试次数达上限时返回 400。"""
     questions = _fake_questions()
     sheet_data = _build_sheet_data(questions)
-    mock_redis, _ = _build_mock_redis(sheet_data, sheet_count=users_v1._MAX_SHEET_ATTEMPTS)
+    mock_redis, _ = _build_mock_redis(sheet_data, sheet_count=settings.REG_MAX_SHEET_ATTEMPTS)
 
     monkeypatch.setattr(users_v1, "redis_conn", SimpleNamespace(get_client=lambda: mock_redis))
     monkeypatch.setattr(
         users_v1,
         "_redis_get_int",
-        lambda client, key: users_v1._MAX_SHEET_ATTEMPTS if "qsheet_atm" in key else 0,
+        lambda client, key: settings.REG_MAX_SHEET_ATTEMPTS if "qsheet_atm" in key else 0,
     )
 
     response = client.post("/api/v1/users/register", json=_VALID_REGISTER_BODY)
@@ -560,7 +561,7 @@ def test_change_password_returns_429_when_rate_limit_exceeded(monkeypatch):
     monkeypatch.setattr(
         users_v1,
         "_redis_get_int",
-        lambda client, key: users_v1._MAX_PWD_CHG_ATTEMPTS_PER_DAY,
+        lambda client, key: settings.MAX_PWD_CHG_ATTEMPTS_PER_DAY,
     )
 
     client = TestClient(app)
