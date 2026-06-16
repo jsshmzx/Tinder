@@ -65,3 +65,24 @@ def generate_refresh_token() -> tuple[str, str]:
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     return token, token_hash
+
+
+def create_temp_token(subject: str, purpose: str, expires_minutes: int = 15) -> str:
+    """创建临时 JWT token，仅用于特定目的（如注册完成）。
+
+    与 create_access_token 的区别：
+    - payload 含 purpose 声明，get_temp_user 依赖据此放行
+    - 默认 15 分钟过期
+
+    Args:
+        subject: 用户 uuid
+        purpose: token 用途标识（如 "register_complete"）
+        expires_minutes: 过期时间（分钟），默认 15
+
+    Returns:
+        JWT 字符串
+    """
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+    to_encode = {"exp": expire, "sub": str(subject), "purpose": purpose}
+    encoded_jwt = jwt.encode(to_encode, _get_jwt_secret(), algorithm=ALGORITHM)
+    return encoded_jwt
