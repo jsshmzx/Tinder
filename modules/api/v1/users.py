@@ -1,27 +1,28 @@
-"""用户注册相关接口。
+"""用户模块 — 注册、个人信息、注销。
 
-流程概述
---------
-1. GET  /users/register/questions
-   从 register_questions 表随机抽取 5 道 active 题目，将题目信息（含答案）
-   序列化后存入 Redis（key 格式：``reg:qsheet:{sheet_id}``，TTL 24 小时）。
-   返回给客户端的数据 **不含答案**，仅含题目 uuid 和题干。
-   每个 IP 每天最多获取 4 张问题表（初始 1 张 + 换题 3 次）。
+注册流程（三步）
+--------------
+1. POST /users/register/sheet/request
+   获取答题卡（IP 每日 4 次），返回 sheet_id + 5 道不含答案的题目。
 
 2. POST /users/register
-   客户端携带问题表 id（``sheet_id``）和对应的答案列表（``answers``）提交注册请求。
-   依次执行以下校验：
-   a. IP 当日尝试总次数 ≤ 10
-   b. real_name 当日尝试次数 ≤ 3
-   c. sheet_id 对应的问题表存在且尝试次数 ≤ 3
-   d. 至少 3 道题目答对
-   e. 数据库中不存在相同姓名 + 班级的学生
-   全部通过后写入用户信息，返回 JWT token 及基本用户数据。
+   提交答案（IP 每日 10 次 / 姓名每日 3 次 / 每答题卡 3 次），
+   至少答对 3 道 → 创建用户（password=NULL）→ 颁发临时 token（15min）。
+
+3. POST /users/register/complete
+   携带临时 token，设置 username + password + email → 返回正式 JWT token。
+
+其他端点
+--------
+- GET    /users/me              — 获取完整个人信息
+- PATCH  /users/me/password     — 修改密码
+- PATCH  /users/me/profile      — 修改个人信息
+- DELETE /users/me              — 账号注销（30 天冷却期）
 """
 
 import json
 import uuid as uuid_lib
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -33,10 +34,10 @@ from core.database.dao.refresh_tokens import RefreshTokensDAO
 from core.database.dao.register_questions import RegisterQuestionsDAO
 from core.database.dao.users import UsersDAO
 from core.helper.ContainerCustomLog.index import custom_log
-from core.middleware.auth.dependencies import get_current_user
+from core.middleware.auth.dependencies import get_current_user, get_temp_user, invalidate_user_cache
 from core.middleware.firewall.helpers import get_client_ip
 from core.security.hash import get_password_hash, verify_password
-from core.security.jwt_handler import create_access_token
+from core.security.jwt_handler import create_access_token, create_temp_token, generate_refresh_token
 
 router = APIRouter(prefix="/users", tags=["Users v1"])
 
@@ -128,11 +129,11 @@ def _redis_incr_with_ttl(client, key: str, ttl: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# GET /users/register/questions — 获取问题表
+# POST /users/register/sheet/request — 获取答题卡
 # ---------------------------------------------------------------------------
 
-@router.get("/register/questions", response_model=dict[str, Any])
-async def get_register_questions(request: Request):
+@router.post("/register/sheet/request", response_model=dict[str, Any])
+async def request_register_sheet(request: Request):
     """随机生成一张注册问题表并存入 Redis，返回题目信息（不含答案）。
 
     每个 IP 每天最多获取 {_MAX_SHEETS_PER_IP_PER_DAY} 张问题表。
@@ -372,14 +373,15 @@ async def register_user(body: RegisterRequest, request: Request):
         custom_log("WARNING", f"[Register] 清理 Redis 问题表失败（不影响注册结果）: {exc}")
 
     # ----------------------------------------------------------------
-    # 步骤 7：生成初始 JWT token 并返回
+    # 步骤 7：颁发临时 token（仅用于 Step 2 完成注册）
     # ----------------------------------------------------------------
-    access_token = create_access_token(subject=new_uuid)
-    custom_log("SUCCESS", f"[Register] 新用户注册成功 uuid={new_uuid} real_name='{body.real_name}'")
+    temp_token = create_temp_token(subject=new_uuid, purpose="register_complete", expires_minutes=15)
+    custom_log("SUCCESS", f"[Register] 新用户答题通过 uuid={new_uuid} real_name='{body.real_name}'")
 
     return {
-        "access_token": access_token,
+        "temp_token": temp_token,
         "token_type": "bearer",
+        "expires_in": 900,
         "user": {
             "uuid": created_user["uuid"],
             "nickname": created_user["nickname"],
@@ -389,6 +391,81 @@ async def register_user(body: RegisterRequest, request: Request):
             "role": created_user["user_role"],
             "is_verified": created_user["is_verified"],
             "status": created_user["current_status"],
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /users/register/complete — Step 2 完成注册
+# ---------------------------------------------------------------------------
+
+@router.post("/register/complete", response_model=dict[str, Any], status_code=status.HTTP_201_CREATED)
+async def complete_register(
+    body: CompleteRegisterRequest,
+    temp_user: dict = Depends(get_temp_user),
+):
+    """完成注册 Step 2：设置用户名和密码，返回正式 JWT token。
+
+    认证：临时 token（purpose="register_complete"），15 分钟有效。
+    验证用户名和邮箱唯一性后，写入 password/username/email。
+    """
+    user_uuid: str = temp_user["uuid"]
+
+    async with get_session() as session:
+        # 验证 username 唯一性
+        existing = await UsersDAO.find_by_username(session, body.username)
+        if existing and str(existing.uuid) != user_uuid:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="用户名已被使用",
+            )
+
+        # 验证 email 唯一性（若提供）
+        if body.email:
+            email_user = await UsersDAO.find_by_username_or_email(session, body.email)
+            if email_user and str(email_user.uuid) != user_uuid:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="邮箱已被使用",
+                )
+
+    # 更新用户：设置密码、用户名、邮箱
+    update_data: dict[str, Any] = {
+        "password": body.password,
+        "username": body.username,
+    }
+    if body.email:
+        update_data["email"] = body.email
+
+    updated_user = await UsersDAO().update(user_uuid, update_data)
+    if updated_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="完成注册失败，用户不存在",
+        )
+
+    # 颁发正式 token
+    access_token = create_access_token(subject=user_uuid)
+    plaintext, token_hash = generate_refresh_token()
+    await RefreshTokensDAO.create(user_uuid=user_uuid, token_hash=token_hash)
+
+    custom_log("SUCCESS", f"[RegisterComplete] uuid={user_uuid} username={body.username} 注册完成")
+
+    return {
+        "access_token": access_token,
+        "refresh_token": plaintext,
+        "token_type": "bearer",
+        "user": {
+            "uuid": updated_user["uuid"],
+            "nickname": updated_user.get("nickname"),
+            "real_name": updated_user.get("real_name"),
+            "username": updated_user.get("username"),
+            "email": updated_user.get("email"),
+            "class": updated_user.get("class"),
+            "class_type": updated_user.get("class_type"),
+            "role": updated_user.get("user_role"),
+            "is_verified": updated_user.get("is_verified"),
+            "status": updated_user.get("current_status"),
         },
     }
 
@@ -415,6 +492,34 @@ class ChangePasswordRequest(BaseModel):
         """拒绝首尾包含空格的新密码，避免用户误操作。"""
         if v != v.strip():
             raise ValueError("新密码首尾不能包含空格")
+        return v
+
+
+class CompleteRegisterRequest(BaseModel):
+    """Step 2 完成注册请求体。"""
+
+    username: str = Field(
+        ..., min_length=3, max_length=20, description="用户名（3-20 字符，仅字母数字下划线）"
+    )
+    password: str = Field(..., description="SHA256 双重哈希后的 64 字符 hex 字符串")
+    email: str | None = Field(None, description="邮箱（可选）")
+
+    @field_validator("username")
+    @classmethod
+    def username_alphanumeric(cls, v: str) -> str:
+        """仅允许字母、数字、下划线。"""
+        import re
+        if not re.fullmatch(r"[a-zA-Z0-9_]+", v):
+            raise ValueError("用户名仅允许字母、数字和下划线")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def password_must_be_hex64(cls, v: str) -> str:
+        """密码必须为 64 字符 SHA256 hex 字符串。"""
+        import re
+        if len(v) != 64 or not re.fullmatch(r"[a-fA-F0-9]{64}", v):
+            raise ValueError("密码必须为 64 字符 SHA256 哈希值（hex）")
         return v
 
 
