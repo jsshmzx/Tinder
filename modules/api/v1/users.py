@@ -477,21 +477,22 @@ async def complete_register(
 class ChangePasswordRequest(BaseModel):
     """修改密码请求体。"""
 
-    old_password: str = Field(..., min_length=1, description="当前密码")
+    old_password: str = Field(..., min_length=64, max_length=64, description="当前密码（64 字符 SHA256 hex）")
     new_password: str = Field(
-        ..., min_length=8, max_length=128, description="新密码（至少 8 个字符，首尾不能有空格）"
+        ..., min_length=64, max_length=64, description="新密码（64 字符 SHA256 hex）"
     )
     refresh_token: str | None = Field(
         None,
         description="当前设备的 Refresh Token（可选，提供后将自动吊销该设备的 Refresh Token）",
     )
 
-    @field_validator("new_password")
+    @field_validator("old_password", "new_password")
     @classmethod
-    def new_password_no_surrounding_spaces(cls, v: str) -> str:
-        """拒绝首尾包含空格的新密码，避免用户误操作。"""
-        if v != v.strip():
-            raise ValueError("新密码首尾不能包含空格")
+    def password_must_be_hex64(cls, v: str) -> str:
+        """密码必须为 64 字符 SHA256 hex 字符串。"""
+        import re
+        if not re.fullmatch(r"[a-fA-F0-9]{64}", v):
+            raise ValueError("密码必须为 64 字符 SHA256 哈希值（hex）")
         return v
 
 
