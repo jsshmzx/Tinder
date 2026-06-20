@@ -81,6 +81,17 @@ async def generate(session: AsyncSession, interactive: bool = True) -> None:
         })
 
     try:
+        # Check which usernames already exist in DB to avoid duplicate key conflicts
+        result = await session.execute(text("SELECT username FROM users"))
+        existing_usernames = {row[0] for row in result.fetchall()}
+
+        # Filter out users whose username already exists
+        users_to_insert = [u for u in users_to_insert if u["username"] not in existing_usernames]
+
+        if not users_to_insert:
+            print(f"⚠️  所有用户已存在，跳过插入")
+            return
+
         sql_params = [
             {
                 "uuid": d["uuid"],
