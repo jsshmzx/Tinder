@@ -186,16 +186,18 @@ async def admin_delete_user(
 
         target_role = target_user.get("user_role")
 
-        # 3. 同为 superadmin 不能直接删除同级
+        # 3. 同为 superadmin 不能直接删除同级 superadmin
         if target_role == Role.SUPERADMIN.value:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="超级管理员不能直接删除同级管理员",
             )
 
-        # 4. 如果系统只剩 2 个或更少超级管理员，不能再删除管理员账户
+        # 4. 系统中超级管理员仅剩 2 个（或更少）时，不允许再删除其中任何一个
         superadmin_count = await UsersDAO.count_by_role(session, Role.SUPERADMIN.value)
-        if target_role in (Role.SUPERADMIN.value, Role.SONGLIST_EDITOR.value) and superadmin_count <= 2:
+        if superadmin_count <= 2 and target_role in (
+            Role.SUPERADMIN.value, Role.SONGLIST_EDITOR.value,
+        ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"系统中仅剩 {superadmin_count} 个超级管理员，不能再删除管理员账户",
