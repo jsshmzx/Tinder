@@ -39,12 +39,31 @@ Integration tests require `DATABASE_URL` and `REDIS_URL` env vars pointing at te
 
 **Core layers (`core/`):**
 - `core/database/connection/pgsql.py` — async SQLAlchemy engine + `get_session()` context manager; always use `async with get_session() as session:`
-- `core/database/connection/redis.py` — synchronous Redis client wrapper (`redis_conn`)
-- `core/database/dao/base.py` — `BaseDAO` with generic async CRUD (`find_by_uuid`, `find_all`, `create`, `update`, `delete`). All DAOs set a `MODEL` class attribute pointing to their SQLAlchemy ORM model
+- `core/database/connection/redis.py` — synchronous Redis client wrapper (`redis_conn`). Uses `RedisConnectionManager` with a background monitor thread and exponential-backoff reconnection. Call `redis_conn.get_client()` to get the `Redis | None` instance — never create a raw Redis client.
+- `core/database/dao/base.py` — `BaseDAO` with generic async CRUD (`find_by_uuid`, `find_all`, `create`, `update`, `delete`). All DAOs set a `MODEL` class attribute pointing to their SQLAlchemy ORM model. **Column name mapping:** `_data_to_kwargs()` converts DB column names (`class`) to ORM attribute names (`class_`) automatically using the `__mapper__.column_attrs` mapping — you map the DB column name in `update()` call data, not the attribute name.
 - `core/middleware/firewall/` — `FirewallMiddleware` runs on every request: IP ban → rate limit → crawler UA → attack signatures (XSS/SQLi/path traversal/SSRF). Violations are persisted to `illegal_requests` and counted in Redis; exceeding `_BAN_THRESHOLD` triggers an IP ban
-- `core/middleware/auth/dependencies.py` — `get_current_user` decodes JWT, then checks a 60-second Redis cache (`auth:user:<uuid>`) before hitting PostgreSQL. `RoleChecker` and `MinRoleChecker` are FastAPI `Depends`-compatible guards
+- `core/middleware/auth/dependencies.py` — `get_current_user` decodes JWT, then checks a 60-second Redis cache (`auth:user:<uuid>`) before hitting PostgreSQL. `RoleChecker` and `MinRoleChecker` are FastAPI `Depends`-compatible guards. `get_temp_user` validates a separate token with `purpose="register_complete"` (for the registration step 2 flow).
 - `core/security/rbac.py` — three roles in ascending power: `normal-user < songlist_editor < superadmin`. Higher roles automatically pass lower-role gates
+- `core/security/hash.py` — password handling: `get_password_hash(pwd)` → bcrypt; `verify_password(pwd, hashed)` → bcrypt verify. **Important:** passwords arrive from the client as a 64-char SHA256 hex string (double-hashed by the client) and are then bcrypt-hashed server-side before storage.
+- `core/security/jwt_handler.py` — JWT creation/decode, refresh token generation (SHA256 hash stored, plaintext returned to client), and temp token creation (with `purpose` in payload).
+- `core/config.py` — `settings` singleton reads from `.env` / environment variables. Config keys are defined as class attributes on the `Settings` class. Add new keys by adding a class attribute. Dotenv is loaded at module import time.
+- `core/cron/scheduler.py` — APScheduler `AsyncIOScheduler`. Add new cron tasks by calling `scheduler.add_job(...)` inside the `start()` function. Currently only `cleanup_expired_deletions` runs at `CRON_CLEANUP_INTERVAL_HOURS` (default 1h).
 - `core/helper/CustomLog/index.py` — `CustomLog` (alias `CtLog`) is the sole logging mechanism; never use `print()`
+
+**Registration flow (three steps):**
+1. `POST /api/v1/users/register/sheet/request` — quiz-based application: get a random sheet of 5 questions (stored in Redis TTL'd). Rate-limited per-IP per-day.
+2. `POST /api/v1/users/register` — submit answers (must get ≥3 correct); if successful, create a user row with `password=NULL` and issue a temp JWT (15 min, `purpose="register_complete"`).
+3. `POST /api/v1/users/register/complete` — use the temp token to set `username`, `password`, and optional `email`. Returns a real JWT + refresh token.
+
+**Admin security pattern:** High-risk operations (delete users) require a `super_password` field in the request body, validated against `SUPER_PASSWORD` env var. This is **in addition to** RBAC (superadmin role required). Never skip the super password check.
+
+**CI workflows:** `.github/workflows/` — `test.yml` (pytest), `docker-build.yml`, `codeql.yml`, `codacy.yml`.
+
+**Refresh token rotation:**
+- On `/auth/login` → generate a new refresh token (SHA256 hash stored, plaintext returned).
+- On `/auth/refresh` → revoke the old hash, issue a new token (rotation).
+- On password change → `revoke_all_for_user()` invalidates all sessions.
+- Old tokens cleaned up by the cron task after `REFRESH_TOKEN_CLEANUP_DAYS` (default 7).
 
 ## Database migrations
 
