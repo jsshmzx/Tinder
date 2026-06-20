@@ -1,6 +1,6 @@
 """清理过期注销账号任务 — 每小时执行一次。"""
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 
@@ -16,7 +16,7 @@ async def cleanup_expired_deletions() -> None:
     查询条件：current_status = 'pending_deletion' AND deletion_scheduled_at <= now()
     操作：撤销所有 refresh token → 物理删除用户记录。
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
 
     # Step 1: 查找过期用户
     async with get_session() as session:

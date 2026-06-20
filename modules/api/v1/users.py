@@ -22,7 +22,7 @@
 
 import json
 import uuid as uuid_lib
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -840,7 +840,7 @@ async def delete_account(
         )
 
     # 设置冷却期
-    deletion_time = datetime.now(timezone.utc) + timedelta(days=settings.ACCOUNT_DELETION_GRACE_DAYS)
+    deletion_time = datetime.utcnow() + timedelta(days=settings.ACCOUNT_DELETION_GRACE_DAYS)
     await UsersDAO().update(user_uuid, {
         "current_status": "pending_deletion",
         "deletion_scheduled_at": deletion_time,
