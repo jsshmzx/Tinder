@@ -71,7 +71,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
             client.setex(
                 _get_user_cache_key(user_uuid),
                 USER_CACHE_TTL_SECONDS,
-                json.dumps(user_dict, ensure_ascii=False),
+                json.dumps(user_dict, ensure_ascii=False, default=str),
             )
         except Exception as exc:
             custom_log("WARNING", f"[RBAC] Redis 写入用户缓存失败 uuid={user_uuid} exc={exc}")
