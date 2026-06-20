@@ -1,11 +1,14 @@
+import uuid as uuid_lib
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select as sa_select
 
 from core.config import settings
 from core.database.connection.pgsql import get_session
-from core.database.dao.users import UsersDAO
-from core.middleware.auth.dependencies import MinRoleChecker, invalidate_user_cache, get_current_user
+from core.database.connection.redis import redis_conn
+from core.database.dao.users import UsersDAO, User
+from core.middleware.auth.dependencies import MinRoleChecker, invalidate_user_cache, get_current_user, USER_CACHE_PREFIX
 from core.security.hash import get_password_hash
 from core.security.rbac import Role
 from core.helper.ContainerCustomLog.index import custom_log
@@ -29,6 +32,20 @@ def _verify_super_password(password: str) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="超级密码错误",
         )
+
+
+def _batch_invalidate_user_cache(uuids: list[str]) -> None:
+    """批量失效 Redis 用户缓存，使用 pipeline 减少网络往返。"""
+    client = redis_conn.get_client()
+    if client is None:
+        return
+    try:
+        pipe = client.pipeline()
+        for uid in uuids:
+            pipe.delete(f"{USER_CACHE_PREFIX}{uid}")
+        pipe.execute()
+    except Exception as exc:
+        custom_log("WARNING", f"[Admin] 批量缓存失效失败 count={len(uuids)} exc={exc}")
 
 
 @router.get("/users", response_model=list[dict[str, Any]])
@@ -85,6 +102,8 @@ async def admin_create_user(
     """
     if payload.get("password"):
         payload["password"] = get_password_hash(str(payload["password"]))
+    if "uuid" not in payload or not payload["uuid"]:
+        payload["uuid"] = str(uuid_lib.uuid4())
     created = await UsersDAO().create(payload)
     invalidate_user_cache(created.get("uuid") or "")
     return created
@@ -135,22 +154,25 @@ async def admin_batch_delete_users(
         )
 
     async with get_session() as session:
-        # 检查待删除列表中是否有 superadmin
-        for uid in uuids:
-            target = await UsersDAO().find_by_uuid(uid)
-            if target is None:
-                continue
-            if target.get("user_role") == Role.SUPERADMIN.value:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="批量删除不能包含超级管理员账户",
-                )
+        # 单次查询所有待删除用户的角色信息，避免 N+1
+        rows = (await session.execute(
+            sa_select(User.uuid, User.user_role).where(User.uuid.in_(uuids))
+        )).all()
+        if rows:
+            role_map: dict[str, str] = dict(rows)  # type: ignore[arg-type]
+            for uid in uuids:
+                if role_map.get(uid) == Role.SUPERADMIN.value:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="批量删除不能包含超级管理员账户",
+                    )
 
-        result = await UsersDAO.batch_delete(session, uuids)
-    for uid in uuids:
-        invalidate_user_cache(uid)
-    custom_log("SUCCESS", f"[Admin] 批量删除用户 count={len(uuids)} actual_deleted={result}")
-    return {"deleted": result}
+        deleted_count = await UsersDAO.batch_delete(session, uuids)
+
+    # 批量失效 Redis 缓存（使用 pipeline 减少网络往返）
+    _batch_invalidate_user_cache(uuids)
+    custom_log("SUCCESS", f"[Admin] 批量删除用户 count={len(uuids)} actual_deleted={deleted_count}")
+    return {"deleted": deleted_count}
 
 
 @router.delete("/users/{user_uuid}", response_model=dict[str, Any])
