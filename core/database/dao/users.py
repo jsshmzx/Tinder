@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Integer, Text, func, select, or_
+from sqlalchemy import Boolean, Integer, Text, func, select, or_, and_
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -109,3 +109,87 @@ class UsersDAO(BaseDAO):
             select(User).where(User.username == username)
         )
         return result.first()
+
+    @staticmethod
+    async def count_users(
+        session: AsyncSession,
+        keyword: str | None = None,
+        status: str | None = None,
+        role: str | None = None,
+    ) -> int:
+        """根据条件统计用户总数。"""
+        conditions = []
+        if keyword:
+            pattern = f"%{keyword}%"
+            conditions.append(
+                or_(
+                    User.username.ilike(pattern),
+                    User.email.ilike(pattern),
+                    User.real_name.ilike(pattern),
+                    User.nickname.ilike(pattern),
+                )
+            )
+        if status:
+            conditions.append(User.current_status == status)
+        if role:
+            conditions.append(User.user_role == role)
+
+        query = select(func.count(User.id))
+        if conditions:
+            query = query.where(and_(*conditions))
+        result = await session.execute(query)
+        return result.scalar() or 0
+
+    @staticmethod
+    async def search_users(
+        session: AsyncSession,
+        keyword: str | None = None,
+        status: str | None = None,
+        role: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """分页搜索用户，支持关键词、状态、角色过滤。"""
+        conditions = []
+        if keyword:
+            pattern = f"%{keyword}%"
+            conditions.append(
+                or_(
+                    User.username.ilike(pattern),
+                    User.email.ilike(pattern),
+                    User.real_name.ilike(pattern),
+                    User.nickname.ilike(pattern),
+                )
+            )
+        if status:
+            conditions.append(User.current_status == status)
+        if role:
+            conditions.append(User.user_role == role)
+
+        query = select(User).order_by(User.id)
+        if conditions:
+            query = query.where(and_(*conditions))
+        query = query.limit(limit).offset(offset)
+
+        objs = (await session.scalars(query)).all()
+        dao = UsersDAO()
+        return [dao._to_dict(o) for o in objs]
+
+    @staticmethod
+    async def get_user_stats(session: AsyncSession) -> dict[str, int]:
+        """获取用户统计信息。"""
+        total_result = await session.execute(select(func.count(User.id)))
+        total = total_result.scalar() or 0
+
+        result = await session.execute(
+            select(User.current_status, func.count(User.id)).group_by(User.current_status)
+        )
+        status_counts = {row[0] or "unknown": row[1] for row in result.all()}
+
+        return {
+            "total": total,
+            "normal": status_counts.get("normal", 0),
+            "disabled": status_counts.get("disabled", 0),
+            "banned": status_counts.get("banned", 0),
+            "pending_deletion": status_counts.get("pending_deletion", 0),
+        }

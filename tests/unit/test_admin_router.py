@@ -9,11 +9,19 @@ from fastapi.testclient import TestClient
 
 from modules.api.v1 import admin as admin_v1
 from core.middleware.auth.dependencies import get_current_user
+from core.database.connection.pgsql import get_session
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+@asynccontextmanager
+async def _fake_session(*args, **kwargs):
+    """A no-op async context manager that yields a fake session."""
+    yield SimpleNamespace()
+
 
 @pytest.fixture()
 def admin_client(monkeypatch):
@@ -28,14 +36,25 @@ def admin_client(monkeypatch):
     app.include_router(admin_v1.router)
     app.dependency_overrides[get_current_user] = lambda: user
 
+    # Wire get_session to our fake
+    monkeypatch.setattr(admin_v1, "get_session", _fake_session)
+
     return TestClient(app)
 
 
-async def _mock_find_all(self, *args, **kwargs):
+async def _mock_search_users(session, keyword=None, status=None, role=None, limit=100, offset=0):
     return [
         {"uuid": "u-1", "nickname": "Alice", "user_role": "normal-user"},
         {"uuid": "u-2", "nickname": "Bob", "user_role": "normal-user"},
     ]
+
+
+async def _mock_count_users(session, keyword=None, status=None, role=None):
+    return 2
+
+
+async def _mock_get_user_stats(session):
+    return {"total": 2, "normal": 1, "disabled": 0, "banned": 0, "pending_deletion": 0}
 
 
 async def _mock_create(self, data):
@@ -62,9 +81,9 @@ def _mock_invalidate(*args, **kwargs):
 # GET /admin/users
 # ---------------------------------------------------------------------------
 
+
 def test_admin_list_users_returns_list(admin_client, monkeypatch):
-    monkeypatch.setattr(admin_v1.UsersDAO, "find_all", _mock_find_all, raising=False)
-    monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+    monkeypatch.setattr(admin_v1.UsersDAO, "search_users", _mock_search_users, raising=False)
 
     resp = admin_client.get("/admin/users")
     assert resp.status_code == 200
@@ -86,8 +105,23 @@ def test_admin_list_users_requires_superadmin(admin_client, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# GET /admin/users/stats
+# ---------------------------------------------------------------------------
+
+
+def test_admin_users_stats(admin_client, monkeypatch):
+    monkeypatch.setattr(admin_v1.UsersDAO, "get_user_stats", _mock_get_user_stats, raising=False)
+
+    resp = admin_client.get("/admin/users/stats")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 2
+
+
+# ---------------------------------------------------------------------------
 # POST /admin/users
 # ---------------------------------------------------------------------------
+
 
 def test_admin_create_user(admin_client, monkeypatch):
     monkeypatch.setattr(admin_v1.UsersDAO, "create", _mock_create, raising=False)
@@ -141,6 +175,7 @@ def test_admin_create_user_hashes_password(admin_client, monkeypatch):
 # PATCH /admin/users/{user_uuid}
 # ---------------------------------------------------------------------------
 
+
 def test_admin_update_user(admin_client, monkeypatch):
     monkeypatch.setattr(admin_v1.UsersDAO, "update", _mock_update, raising=False)
     monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
@@ -168,6 +203,7 @@ def test_admin_update_user_returns_404_when_not_found(admin_client, monkeypatch)
 # ---------------------------------------------------------------------------
 # DELETE /admin/users/{user_uuid}
 # ---------------------------------------------------------------------------
+
 
 def test_admin_delete_user(admin_client, monkeypatch):
     monkeypatch.setattr(admin_v1.UsersDAO, "delete", _mock_delete, raising=False)
@@ -222,3 +258,54 @@ def test_admin_disable_user_requires_superadmin(admin_client, monkeypatch):
     }
     resp = admin_client.post("/admin/users/u-1/disable")
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/users/{user_uuid}/enable
+# ---------------------------------------------------------------------------
+
+def test_admin_enable_user(admin_client, monkeypatch):
+    async def capture_update(self, uuid, data):
+        return {"uuid": uuid, **data}
+
+    monkeypatch.setattr(admin_v1.UsersDAO, "update", capture_update, raising=False)
+    monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    resp = admin_client.post("/admin/users/u-1/enable")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["current_status"] == "normal"
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/users/{user_uuid}/ban
+# ---------------------------------------------------------------------------
+
+def test_admin_ban_user(admin_client, monkeypatch):
+    async def capture_update(self, uuid, data):
+        return {"uuid": uuid, **data}
+
+    monkeypatch.setattr(admin_v1.UsersDAO, "update", capture_update, raising=False)
+    monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    resp = admin_client.post("/admin/users/u-1/ban")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["current_status"] == "banned"
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/users/{user_uuid}/unban
+# ---------------------------------------------------------------------------
+
+def test_admin_unban_user(admin_client, monkeypatch):
+    async def capture_update(self, uuid, data):
+        return {"uuid": uuid, **data}
+
+    monkeypatch.setattr(admin_v1.UsersDAO, "update", capture_update, raising=False)
+    monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    resp = admin_client.post("/admin/users/u-1/unban")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["current_status"] == "normal"
