@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Integer, Text, func, select, or_, and_
+from sqlalchemy import Boolean, Integer, Text, func, select, or_, and_, delete as sa_delete
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -174,6 +174,13 @@ class UsersDAO(BaseDAO):
         objs = (await session.scalars(query)).all()
         dao = UsersDAO()
         return [dao._to_dict(o) for o in objs]
+
+    @staticmethod
+    async def batch_delete(session: AsyncSession, uuids: list[str]) -> int:
+        """批量删除用户（单条 SQL DELETE 语句）。"""
+        result = await session.execute(sa_delete(User).where(User.uuid.in_(uuids)))
+        await session.commit()
+        return result.rowcount
 
     @staticmethod
     async def get_user_stats(session: AsyncSession) -> dict[str, int]:

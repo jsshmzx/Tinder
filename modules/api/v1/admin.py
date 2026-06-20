@@ -88,6 +88,24 @@ async def admin_update_user(
     return updated
 
 
+@router.delete("/users/batch", response_model=dict[str, Any])
+async def admin_batch_delete_users(
+    payload: dict[str, Any],
+    _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
+):
+    """管理员：批量删除用户（单个事务，删除多个用户）。"""
+    uuids: list[str] = payload.get("uuids", [])
+    if not uuids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="未提供要删除的用户 UUID 列表")
+
+    async with get_session() as session:
+        result = await UsersDAO.batch_delete(session, uuids)
+    for uid in uuids:
+        invalidate_user_cache(uid)
+    custom_log("SUCCESS", f"[Admin] 批量删除用户 count={len(uuids)} actual_deleted={result}")
+    return {"deleted": result}
+
+
 @router.delete("/users/{user_uuid}", response_model=dict[str, Any])
 async def admin_delete_user(
     user_uuid: str,
