@@ -22,4 +22,5 @@ migration_history =[
     "initial_register_questions.sql",
     "add_refresh_tokens.sql",
     "alter_users_add_deletion_scheduled_at.sql",
+    "alter_register_questions_add_options.sql",
 ]
