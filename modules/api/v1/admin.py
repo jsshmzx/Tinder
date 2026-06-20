@@ -416,7 +416,7 @@ async def admin_create_question(
     data["current_status"] = "active"
     if data.get("options") is not None:
         data["options"] = json.dumps(data["options"], ensure_ascii=False)
-    created = await RegisterQuestionsDAO.create(data)
+    created = await RegisterQuestionsDAO().create(data)
     return created
 
 
