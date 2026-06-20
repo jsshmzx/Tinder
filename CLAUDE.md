@@ -44,7 +44,7 @@ Integration tests require `DATABASE_URL` and `REDIS_URL` env vars pointing at te
 - `core/middleware/firewall/` — `FirewallMiddleware` runs on every request: IP ban → rate limit → crawler UA → attack signatures (XSS/SQLi/path traversal/SSRF). Violations are persisted to `illegal_requests` and counted in Redis; exceeding `_BAN_THRESHOLD` triggers an IP ban
 - `core/middleware/auth/dependencies.py` — `get_current_user` decodes JWT, then checks a 60-second Redis cache (`auth:user:<uuid>`) before hitting PostgreSQL. `RoleChecker` and `MinRoleChecker` are FastAPI `Depends`-compatible guards
 - `core/security/rbac.py` — three roles in ascending power: `normal-user < songlist_editor < superadmin`. Higher roles automatically pass lower-role gates
-- `core/helper/ContainerCustomLog/index.py` — `custom_log(level, message)` is the sole logging mechanism; never use `print()`
+- `core/helper/CustomLog/index.py` — `CustomLog` (alias `CtLog`) is the sole logging mechanism; never use `print()`
 
 ## Database migrations
 
@@ -74,9 +74,46 @@ async def admin_endpoint(_: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)
 
 After modifying a user record, call `invalidate_user_cache(user_uuid)` to clear the Redis cache.
 
+## CustomLog (CtLog) usage guide
+
+Located at `core/helper/CustomLog/index.py`. Call via `CustomLog(...)` or the shorter alias `CtLog(...)`.
+
+| Parameter    | Type              | Default    | Description                                      |
+|-------------|-------------------|-----------|--------------------------------------------------|
+| `log_level`  | `str`             | `"INFO"`   | `INFO` / `WARNING` / `ERROR` / `SUCCESS`         |
+| `content`    | `str`             | `""`       | 日志内容                                        |
+| `log_style`  | `str`             | `"CT"`     | `CT`（彩色+标签）或 `NORMAL`（纯文本 `[LEVEL] 内容`） |
+| `print_out`  | `bool`            | `True`     | 是否打印到控制台                                  |
+| `sid`        | `bool`            | `False`    | Store In DB — 是否异步写入数据库                  |
+| `sidp`       | `str`             | `"system"` | `"system"`（系统日志表）或 `"personal"`（个人日志表） |
+| `log_type`   | `str \| None`     | `None`     | 写入 DB 时填充 `type` 字段（如 `"auth"`, `"cron"`) |
+| `user_uuid`  | `str \| None`     | `None`     | 个人日志时需要（写入 `personal_logs.user_uuid`）  |
+
+```python
+from core.helper.CustomLog.index import CustomLog, CtLog
+
+# 基础用法（CT 样式，不存库）— 向后兼容原 custom_log
+CustomLog("SUCCESS", "操作完成")
+CustomLog("WARNING", "注意：xxx")
+CustomLog("ERROR", "失败: {exc}")
+
+# NORMAL 样式（纯文本，无 ANSI 颜色）
+CtLog("INFO", "普通日志", log_style="NORMAL")
+
+# 不输出到控制台
+CustomLog("INFO", "仅存库", print_out=False, sid=True, sidp="system")
+
+# 写入个人日志表（需指定用户）
+CustomLog("INFO", "用户操作", sid=True, sidp="personal",
+          user_uuid=user_uuid, log_type="auth")
+
+# 别名
+CtLog("SUCCESS", "CtLog 与 CustomLog 完全等价")
+```
+
 ## Code conventions
 
 - Imports order: stdlib → third-party → `core` → `modules`
 - Type annotations on all new functions
-- No `print()` — use `custom_log("INFO"|"SUCCESS"|"WARNING"|"ERROR", message)`
+- No `print()` — use `CustomLog("INFO"|"SUCCESS"|"WARNING"|"ERROR", message)` or `CtLog(...)`
 - Branch naming: `feat/`, `fix/`, `refactor/`, `docs/`

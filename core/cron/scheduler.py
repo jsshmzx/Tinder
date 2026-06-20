@@ -3,7 +3,7 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from core.config import settings
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import CustomLog
 
 scheduler = AsyncIOScheduler()
 
@@ -21,10 +21,10 @@ def start() -> None:
     )
 
     scheduler.start()
-    custom_log("SUCCESS", "[Cron] 定时任务调度器已启动")
+    CustomLog("SUCCESS", "[Cron] 定时任务调度器已启动")
 
 
 def stop() -> None:
     """停止调度器。"""
     scheduler.shutdown(wait=False)
-    custom_log("SUCCESS", "[Cron] 定时任务调度器已停止")
+    CustomLog("SUCCESS", "[Cron] 定时任务调度器已停止")

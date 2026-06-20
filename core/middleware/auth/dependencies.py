@@ -10,7 +10,7 @@ from core.database.connection.redis import redis_conn
 from core.database.dao.users import UsersDAO, User
 from core.security.jwt_handler import decode_access_token
 from core.security.rbac import role_includes
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import CustomLog
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/login")
 temp_token_scheme = HTTPBearer()
@@ -34,7 +34,7 @@ def invalidate_user_cache(user_uuid: str) -> None:
     try:
         client.delete(_get_user_cache_key(user_uuid))
     except Exception as exc:
-        custom_log("WARNING", f"[RBAC] 用户缓存失效失败 uuid={user_uuid} exc={exc}")
+        CustomLog("WARNING", f"[RBAC] 用户缓存失效失败 uuid={user_uuid} exc={exc}")
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     """基于提供的 JWT token 获取当前用户信息。"""
@@ -59,7 +59,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
             if cached:
                 return json.loads(cached)
         except Exception as exc:
-            custom_log("WARNING", f"[RBAC] Redis 读取用户缓存失败 uuid={user_uuid} exc={exc}")
+            CustomLog("WARNING", f"[RBAC] Redis 读取用户缓存失败 uuid={user_uuid} exc={exc}")
 
     user_dict = await UsersDAO().find_by_uuid(user_uuid)
     if user_dict is None:
@@ -74,7 +74,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
                 json.dumps(user_dict, ensure_ascii=False, default=str),
             )
         except Exception as exc:
-            custom_log("WARNING", f"[RBAC] Redis 写入用户缓存失败 uuid={user_uuid} exc={exc}")
+            CustomLog("WARNING", f"[RBAC] Redis 写入用户缓存失败 uuid={user_uuid} exc={exc}")
     return user_dict
 
 class RoleChecker:

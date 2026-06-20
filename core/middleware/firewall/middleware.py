@@ -3,7 +3,7 @@ from typing import Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import CustomLog
 from core.middleware.firewall.config import (
     _BAN_THRESHOLD,
     _CRAWLER_UA_PATTERNS,
@@ -57,7 +57,7 @@ class FirewallMiddleware(BaseHTTPMiddleware):
             viol_count = increment_violation(ip)
             if viol_count >= _BAN_THRESHOLD:
                 ban_ip(ip)
-            custom_log("WARNING", f"[Firewall] 速率超限 ip={ip} path={path}")
+            CustomLog("WARNING", f"[Firewall] 速率超限 ip={ip} path={path}")
             return build_reject_response("请求过于频繁，请稍后再试。")
 
         # ------------------------------------------------------------------ #
@@ -70,7 +70,7 @@ class FirewallMiddleware(BaseHTTPMiddleware):
             viol_count = increment_violation(ip)
             if viol_count >= _BAN_THRESHOLD:
                 ban_ip(ip)
-            custom_log("WARNING", f"[Firewall] 爬虫 UA 检测 ip={ip} ua={ua}")
+            CustomLog("WARNING", f"[Firewall] 爬虫 UA 检测 ip={ip} ua={ua}")
             return build_reject_response("禁止爬虫访问。")
 
         # ------------------------------------------------------------------ #
@@ -102,7 +102,7 @@ class FirewallMiddleware(BaseHTTPMiddleware):
             viol_count = increment_violation(ip)
             if viol_count >= _BAN_THRESHOLD:
                 ban_ip(ip)
-            custom_log("WARNING", f"[Firewall] {attack_type} 攻击检测 ip={ip} path={path}")
+            CustomLog("WARNING", f"[Firewall] {attack_type} 攻击检测 ip={ip} path={path}")
             return build_reject_response("请求包含非法内容，已被拦截。")
 
         # ------------------------------------------------------------------ #

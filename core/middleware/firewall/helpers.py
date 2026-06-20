@@ -5,7 +5,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from core.database.connection.redis import redis_conn
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import CustomLog
 from core.middleware.firewall.config import (
     _BAN_DURATION,
     _BAN_THRESHOLD,
@@ -86,7 +86,7 @@ async def record_illegal_request(
         async with get_session() as session:
             session.add(record)
     except Exception as exc:
-        custom_log("ERROR", f"[Firewall] 写入 illegal_requests 失败: {exc}")
+        CustomLog("ERROR", f"[Firewall] 写入 illegal_requests 失败: {exc}")
 
 
 def increment_violation(ip: str) -> int:
@@ -104,7 +104,7 @@ def increment_violation(ip: str) -> int:
         client.expire(key, _BAN_DURATION)
         return count
     except Exception as exc:
-        custom_log("ERROR", f"[Firewall] Redis 违规计数失败: {exc}")
+        CustomLog("ERROR", f"[Firewall] Redis 违规计数失败: {exc}")
         return 0
 
 
@@ -115,9 +115,9 @@ def ban_ip(ip: str) -> None:
         if client is None:
             return
         client.set(f"{_KEY_BAN}{ip}", "1", ex=_BAN_DURATION)
-        custom_log("WARNING", f"[Firewall] IP 已封禁 24h: {ip}")
+        CustomLog("WARNING", f"[Firewall] IP 已封禁 24h: {ip}")
     except Exception as exc:
-        custom_log("ERROR", f"[Firewall] Redis 封禁 IP 失败: {exc}")
+        CustomLog("ERROR", f"[Firewall] Redis 封禁 IP 失败: {exc}")
 
 
 def is_banned(ip: str) -> bool:
@@ -182,4 +182,4 @@ async def record_request_log(path: str) -> None:
 
         await RequestLogsDAO().upsert_by_path(path)
     except Exception as exc:
-        custom_log("ERROR", f"[Firewall] 写入 request_logs 失败: {exc}")
+        CustomLog("ERROR", f"[Firewall] 写入 request_logs 失败: {exc}")

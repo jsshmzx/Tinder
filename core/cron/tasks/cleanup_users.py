@@ -7,7 +7,7 @@ from sqlalchemy import select
 from core.database.connection.pgsql import get_session
 from core.database.dao.refresh_tokens import RefreshTokensDAO
 from core.database.dao.users import User
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import CustomLog
 
 
 async def cleanup_expired_deletions() -> None:
@@ -46,4 +46,4 @@ async def cleanup_expired_deletions() -> None:
             await session.delete(user)
         await session.flush()
 
-    custom_log("SUCCESS", f"[Cron] 清理过期注销账号: {len(expired_uuids)} 个")
+    CustomLog("SUCCESS", f"[Cron] 清理过期注销账号: {len(expired_uuids)} 个")
