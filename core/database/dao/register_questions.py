@@ -3,8 +3,9 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Integer, Text, func, or_, select
+from sqlalchemy import Integer, Text, func, select
 from sqlalchemy.dialects.postgresql import TIMESTAMP
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.database.connection.pgsql import Base, get_session
@@ -114,21 +115,38 @@ class RegisterQuestionsDAO(BaseDAO):
             return result.scalar() or 0
 
     @staticmethod
-    async def batch_delete_by_uuids(uuids: list[str]) -> int:
+    async def batch_delete_by_uuids(
+        uuids: list[str],
+        session: AsyncSession | None = None,
+    ) -> int:
         """批量删除题目，返回实际删除数量。"""
-        async with get_session() as session:
-            result = await session.execute(
+        async def _execute(s: AsyncSession) -> int:
+            result = await s.execute(
                 RegisterQuestions.__table__.delete().where(RegisterQuestions.uuid.in_(uuids))
             )
             return result.rowcount
 
+        if session is not None:
+            return await _execute(session)
+        async with get_session() as s:
+            return await _execute(s)
+
     @staticmethod
-    async def batch_update_status(uuids: list[str], status: str) -> int:
+    async def batch_update_status(
+        uuids: list[str],
+        status: str,
+        session: AsyncSession | None = None,
+    ) -> int:
         """批量更新题目状态，返回实际更新数量。"""
-        async with get_session() as session:
-            result = await session.execute(
+        async def _execute(s: AsyncSession) -> int:
+            result = await s.execute(
                 RegisterQuestions.__table__.update()
                 .where(RegisterQuestions.uuid.in_(uuids))
                 .values(current_status=status)
             )
             return result.rowcount
+
+        if session is not None:
+            return await _execute(session)
+        async with get_session() as s:
+            return await _execute(s)

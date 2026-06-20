@@ -2,7 +2,6 @@
 
 import json
 import uuid as uuid_lib
-from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
@@ -75,7 +74,6 @@ def test_questions_total(client, monkeypatch):
 
 def test_create_question_choice(client, monkeypatch):
     from modules.api.v1 import admin as admin_module
-    import core.security.rbac as rbac_module
 
     created = {}
 
@@ -260,6 +258,8 @@ def test_single_update_status(client, monkeypatch):
     monkeypatch.setattr(admin_module.RegisterQuestionsDAO, "update", fake_update, raising=False)
     response = client.patch("/admin/questions/q-1/status", json={"status": "inactive"})
     assert response.status_code == 200
+    assert captured["uuid"] == "q-1"
+    assert captured["status"] == "inactive"
 
 
 def test_questions_stats(client, monkeypatch):

@@ -305,7 +305,7 @@ class QuestionCreateRequest(BaseModel):
 
     @field_validator("options")
     @classmethod
-    def choice_options_must_have_at_least_two(cls, v: str | None, info):
+    def choice_options_must_have_at_least_two(cls, v: list[str] | None, info):
         if info.data.get("question_type") == "choice":
             if not v or len(v) < 2:
                 raise ValueError("选择题至少需要 2 个选项")
@@ -428,6 +428,7 @@ async def admin_batch_delete_questions(
 ):
     """管理员：批量删除题目。"""
     deleted = await RegisterQuestionsDAO.batch_delete_by_uuids(payload.uuids)
+    CustomLog("SUCCESS", f"[Admin] 批量删除题目 count={len(payload.uuids)} actual_deleted={deleted}")
     return {"deleted": deleted}
 
 
@@ -439,6 +440,7 @@ async def admin_batch_update_question_status(
 ):
     """管理员：批量切换题目状态。"""
     updated = await RegisterQuestionsDAO.batch_update_status(payload.uuids, payload.status)
+    CustomLog("SUCCESS", f"[Admin] 管理员批量切换题目状态 count={len(payload.uuids)} actual_updated={updated} -> {payload.status}")
     return {"updated": updated}
 
 
@@ -456,6 +458,32 @@ async def admin_update_question(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="题目不存在")
 
     data = payload.model_dump(exclude_none=True)
+    if "answer" in data and existing.get("question_type") == "true_false":
+        if data["answer"].lower() not in ("true", "false"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="判断题答案只能为 true 或 false",
+            )
+    # Cross-validate answer vs options for choice questions
+    if "answer" in data and "options" in data and existing.get("question_type") == "choice":
+        new_options = data.get("options")
+        if new_options is not None:
+            import json as _json
+            if isinstance(new_options, str):
+                parsed_options = _json.loads(new_options)
+            else:
+                parsed_options = new_options
+            if data["answer"] not in parsed_options:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="更新后的答案必须在选项中",
+                )
+    # Nullify options when question_type changes away from choice
+    if "question_type" in data:
+        existing_type = existing.get("question_type")
+        new_type = data["question_type"]
+        if existing_type == "choice" and new_type != "choice":
+            data["options"] = None
     if "options" in data:
         if data["options"] is not None:
             data["options"] = json.dumps(data["options"], ensure_ascii=False)
@@ -465,6 +493,7 @@ async def admin_update_question(
     updated = await RegisterQuestionsDAO().update(question_uuid, data)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="题目不存在")
+    CustomLog("SUCCESS", f"[Admin] 管理员编辑题目 uuid={question_uuid}")
     return updated
 
 
@@ -478,6 +507,7 @@ async def admin_delete_question(
     ok = await RegisterQuestionsDAO().delete(question_uuid)
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="题目不存在")
+    CustomLog("SUCCESS", f"[Admin] 管理员删除题目 uuid={question_uuid}")
     return {"success": True}
 
 
@@ -492,5 +522,6 @@ async def admin_update_question_status(
     updated = await RegisterQuestionsDAO().update(question_uuid, {"current_status": payload.status})
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="题目不存在")
+    CustomLog("SUCCESS", f"[Admin] 管理员切换题目状态 uuid={question_uuid} -> {payload.status}")
     return updated
 
