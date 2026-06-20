@@ -91,6 +91,7 @@ class Settings:
     AUTH_USER_CACHE_TTL_SECONDS: int = _int("AUTH_USER_CACHE_TTL_SECONDS", 60)
 
     # === 防火墙 ===
+    FW_ENABLED: bool = _bool("FW_ENABLED", True)
     FW_MAX_REQUESTS_PER_SECOND: int = _int("FW_MAX_REQUESTS_PER_SECOND", 20)
     FW_BAN_THRESHOLD: int = _int("FW_BAN_THRESHOLD", 10)
     FW_BAN_DURATION: int = _int("FW_BAN_DURATION", 86400)

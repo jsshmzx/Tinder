@@ -58,7 +58,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 # 注册防火墙中间件（在 CORS 之后，路由之前）
-app.add_middleware(FirewallMiddleware)
+if settings.FW_ENABLED:
+    app.add_middleware(FirewallMiddleware)
+    custom_log("INFO", "防火墙已启用（FW_ENABLED=true）")
 # 导入模块
 from modules.index.index import app as index_router
 from modules.api.v1.router import router as api_v1_router
