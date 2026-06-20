@@ -16,7 +16,7 @@ async def cleanup_expired_deletions() -> None:
     查询条件：current_status = 'pending_deletion' AND deletion_scheduled_at <= now()
     操作：撤销所有 refresh token → 物理删除用户记录。
     """
-    now = datetime.utcnow()
+    now = datetime.now()
 
     # Step 1: 查找过期用户
     async with get_session() as session:

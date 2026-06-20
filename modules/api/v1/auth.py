@@ -87,7 +87,7 @@ async def login(request: Request, body: LoginRequest):
 
         if status_val == "pending_deletion":
             deletion_time = user.deletion_scheduled_at
-            now_utc = datetime.utcnow()
+            now_utc = datetime.now()
             if deletion_time and deletion_time > now_utc:
                 # 冷却期内登录 → 自动恢复
                 await UsersDAO().update(user_uuid, {
@@ -106,7 +106,7 @@ async def login(request: Request, body: LoginRequest):
 
     await RefreshTokensDAO.create(user_uuid=user_uuid, token_hash=token_hash)
     await UsersDAO().update(user_uuid, {
-        "last_login_at": datetime.utcnow(),
+        "last_login_at": datetime.now(),
         "last_login_ip": client_ip,
     })
 
