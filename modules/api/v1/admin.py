@@ -2,15 +2,33 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from core.config import settings
 from core.database.connection.pgsql import get_session
 from core.database.dao.users import UsersDAO
-from core.middleware.auth.dependencies import MinRoleChecker, invalidate_user_cache
+from core.middleware.auth.dependencies import MinRoleChecker, invalidate_user_cache, get_current_user
 from core.security.hash import get_password_hash
 from core.security.rbac import Role
 from core.helper.ContainerCustomLog.index import custom_log
 
 
 router = APIRouter(prefix="/admin", tags=["Admin v1"])
+
+
+def _verify_super_password(password: str) -> None:
+    """校验超级密码 SUPER_PASSWORD。
+
+    从 settings.SUPER_PASSWORD 读取，校验失败抛 403。
+    """
+    if not settings.SUPER_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="超级密码未配置，请联系管理员",
+        )
+    if password != settings.SUPER_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="超级密码错误",
+        )
 
 
 @router.get("/users", response_model=list[dict[str, Any]])
@@ -91,14 +109,43 @@ async def admin_update_user(
 @router.delete("/users/batch", response_model=dict[str, Any])
 async def admin_batch_delete_users(
     payload: dict[str, Any],
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
-    """管理员：批量删除用户（单个事务，删除多个用户）。"""
+    """管理员：批量删除用户（单个事务，删除多个用户）。
+
+    安全限制：
+    1. 必须提供超级密码 (SUPER_PASSWORD)
+    2. 不能包含当前登录的管理员自己
+    3. 不能包含 superadmin 角色
+    """
     uuids: list[str] = payload.get("uuids", [])
     if not uuids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="未提供要删除的用户 UUID 列表")
 
+    # 1. 校验超级密码
+    super_password = payload.get("super_password", "")
+    _verify_super_password(super_password)
+
+    # 2. 不能删除自己
+    if current_user["uuid"] in uuids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="批量删除列表中包含当前登录的管理员账户，已取消操作",
+        )
+
     async with get_session() as session:
+        # 检查待删除列表中是否有 superadmin
+        for uid in uuids:
+            target = await UsersDAO().find_by_uuid(uid)
+            if target is None:
+                continue
+            if target.get("user_role") == Role.SUPERADMIN.value:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="批量删除不能包含超级管理员账户",
+                )
+
         result = await UsersDAO.batch_delete(session, uuids)
     for uid in uuids:
         invalidate_user_cache(uid)
@@ -109,9 +156,51 @@ async def admin_batch_delete_users(
 @router.delete("/users/{user_uuid}", response_model=dict[str, Any])
 async def admin_delete_user(
     user_uuid: str,
+    payload: dict[str, Any],
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
-    """管理员：删除用户。"""
+    """管理员：删除用户。
+
+    安全限制：
+    1. 必须提供超级密码 (SUPER_PASSWORD)
+    2. 不能删除当前登录的管理员自己
+    3. 同为超级管理员不能直接删除同级的超级管理员
+    4. 系统中仅剩 2 个超级管理员时，不能再删除其中任何一个
+    """
+    # 1. 校验超级密码
+    super_password = payload.get("super_password", "")
+    _verify_super_password(super_password)
+
+    # 2. 不能删除自己
+    if user_uuid == current_user["uuid"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="不能删除当前登录的管理员账户",
+        )
+
+    async with get_session() as session:
+        target_user = await UsersDAO().find_by_uuid(user_uuid)
+        if target_user is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
+        target_role = target_user.get("user_role")
+
+        # 3. 同为 superadmin 不能直接删除同级
+        if target_role == Role.SUPERADMIN.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="超级管理员不能直接删除同级管理员",
+            )
+
+        # 4. 如果系统只剩 2 个或更少超级管理员，不能再删除管理员账户
+        superadmin_count = await UsersDAO.count_by_role(session, Role.SUPERADMIN.value)
+        if target_role in (Role.SUPERADMIN.value, Role.SONGLIST_EDITOR.value) and superadmin_count <= 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"系统中仅剩 {superadmin_count} 个超级管理员，不能再删除管理员账户",
+            )
+
     ok = await UsersDAO().delete(user_uuid)
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")

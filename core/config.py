@@ -118,6 +118,9 @@ class Settings:
     # === 安全清理 ===
     REFRESH_TOKEN_CLEANUP_DAYS: int = _int("REFRESH_TOKEN_CLEANUP_DAYS", 7)
 
+    # === 超级密码（用于高危操作，如删除用户） ===
+    SUPER_PASSWORD: str = _str("SUPER_PASSWORD", "")
+
 
 # 全局单例
 settings = Settings()

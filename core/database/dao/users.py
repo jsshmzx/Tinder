@@ -183,6 +183,14 @@ class UsersDAO(BaseDAO):
         return result.rowcount
 
     @staticmethod
+    async def count_by_role(session: AsyncSession, role: str) -> int:
+        """统计指定角色的用户总数。"""
+        result = await session.execute(
+            select(func.count(User.id)).where(User.user_role == role)
+        )
+        return result.scalar() or 0
+
+    @staticmethod
     async def get_user_stats(session: AsyncSession) -> dict[str, int]:
         """获取用户统计信息。"""
         total_result = await session.execute(select(func.count(User.id)))
