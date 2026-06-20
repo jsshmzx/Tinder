@@ -34,7 +34,7 @@ from core.database.dao.refresh_tokens import RefreshTokensDAO
 from core.database.dao.register_questions import RegisterQuestionsDAO
 from core.database.dao.users import UsersDAO
 from core.config import settings
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import CustomLog
 from core.middleware.auth.dependencies import get_current_user, get_temp_user, invalidate_user_cache
 from core.middleware.firewall.helpers import get_client_ip
 from core.security.hash import get_password_hash, verify_password
@@ -115,7 +115,7 @@ def _redis_incr_with_ttl(client, key: str, ttl: int) -> int:
             client.expire(key, ttl)
         return count
     except Exception as exc:
-        custom_log("ERROR", f"[Register] Redis incr 失败 key={key}: {exc}")
+        CustomLog("ERROR", f"[Register] Redis incr 失败 key={key}: {exc}")
         return 0
 
 
@@ -138,7 +138,7 @@ async def request_register_sheet(request: Request):
         sheets_key = f"{_REDIS_IP_SHEETS}{client_ip}:{today}"
         current_sheets = _redis_get_int(redis, sheets_key)
         if current_sheets >= settings.REG_MAX_SHEETS_PER_IP_PER_DAY:
-            custom_log(
+            CustomLog(
                 "WARNING",
                 f"[Register] IP {client_ip} 今日问题表申请次数已达上限 {settings.REG_MAX_SHEETS_PER_IP_PER_DAY}",
             )
@@ -150,7 +150,7 @@ async def request_register_sheet(request: Request):
     # ----- 随机抽取题目 -----
     questions = await RegisterQuestionsDAO.find_random_active(count=settings.REG_QUESTION_COUNT)
     if len(questions) < settings.REG_QUESTION_COUNT:
-        custom_log("WARNING", f"[Register] 题库中 active 题目不足 {settings.REG_QUESTION_COUNT} 道，实际获取 {len(questions)} 道")
+        CustomLog("WARNING", f"[Register] 题库中 active 题目不足 {settings.REG_QUESTION_COUNT} 道，实际获取 {len(questions)} 道")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="题库暂时不可用，请稍后再试",
@@ -175,20 +175,20 @@ async def request_register_sheet(request: Request):
             # 递增 IP 今日问题表计数
             _redis_incr_with_ttl(redis, f"{_REDIS_IP_SHEETS}{client_ip}:{_today_str()}", settings.REG_SHEET_TTL_SECONDS)
         except Exception as exc:
-            custom_log("ERROR", f"[Register] Redis 写入问题表失败: {exc}")
+            CustomLog("ERROR", f"[Register] Redis 写入问题表失败: {exc}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="服务暂时不可用，请稍后再试",
             )
     else:
         # Redis 不可用时拒绝服务，避免无限制注册
-        custom_log("ERROR", "[Register] Redis 不可用，拒绝问题表请求")
+        CustomLog("ERROR", "[Register] Redis 不可用，拒绝问题表请求")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="服务暂时不可用，请稍后再试",
         )
 
-    custom_log("SUCCESS", f"[Register] IP {client_ip} 获取问题表 sheet_id={sheet_id}")
+    CustomLog("SUCCESS", f"[Register] IP {client_ip} 获取问题表 sheet_id={sheet_id}")
     return {
         "sheet_id": sheet_id,
         "questions": sheet_data["questions"],  # 不含答案
@@ -219,7 +219,7 @@ async def register_user(body: RegisterRequest, request: Request):
     # 步骤 1：检查 IP 当日注册尝试次数
     # ----------------------------------------------------------------
     if redis is None:
-        custom_log("ERROR", "[Register] Redis 不可用，拒绝注册请求")
+        CustomLog("ERROR", "[Register] Redis 不可用，拒绝注册请求")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="服务暂时不可用，请稍后再试",
@@ -228,7 +228,7 @@ async def register_user(body: RegisterRequest, request: Request):
     ip_attempts_key = f"{_REDIS_IP_ATTEMPTS}{client_ip}:{today}"
     ip_attempts = _redis_get_int(redis, ip_attempts_key)
     if ip_attempts >= settings.REG_MAX_IP_ATTEMPTS_PER_DAY:
-        custom_log("WARNING", f"[Register] IP {client_ip} 今日注册尝试次数已达上限")
+        CustomLog("WARNING", f"[Register] IP {client_ip} 今日注册尝试次数已达上限")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"该 IP 今日注册尝试次数已达上限（{settings.REG_MAX_IP_ATTEMPTS_PER_DAY} 次），请明日再试",
@@ -242,7 +242,7 @@ async def register_user(body: RegisterRequest, request: Request):
     name_attempts_key = f"{_REDIS_NAME_ATTEMPTS}{name_key_part}:{today}"
     name_attempts = _redis_get_int(redis, name_attempts_key)
     if name_attempts >= settings.REG_MAX_NAME_ATTEMPTS_PER_DAY:
-        custom_log("WARNING", f"[Register] real_name '{body.real_name}' 今日尝试次数已达上限")
+        CustomLog("WARNING", f"[Register] real_name '{body.real_name}' 今日尝试次数已达上限")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"该姓名今日注册尝试次数已达上限（{settings.REG_MAX_NAME_ATTEMPTS_PER_DAY} 次），请明日再试",
@@ -257,7 +257,7 @@ async def register_user(body: RegisterRequest, request: Request):
     try:
         sheet_raw = redis.get(sheet_redis_key)
     except Exception as exc:
-        custom_log("ERROR", f"[Register] Redis 读取问题表失败: {exc}")
+        CustomLog("ERROR", f"[Register] Redis 读取问题表失败: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="服务暂时不可用，请稍后再试",
@@ -272,7 +272,7 @@ async def register_user(body: RegisterRequest, request: Request):
     try:
         sheet_data: dict = json.loads(sheet_raw)
     except (json.JSONDecodeError, TypeError):
-        custom_log("ERROR", f"[Register] 问题表数据损坏 sheet_id={body.sheet_id}")
+        CustomLog("ERROR", f"[Register] 问题表数据损坏 sheet_id={body.sheet_id}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="服务暂时不可用，请稍后再试",
@@ -302,7 +302,7 @@ async def register_user(body: RegisterRequest, request: Request):
         if expected is not None and _normalize_answer(item.answer) == expected:
             correct_count += 1
 
-    custom_log(
+    CustomLog(
         "SUCCESS" if correct_count >= settings.REG_CORRECT_THRESHOLD else "WARNING",
         f"[Register] IP={client_ip} real_name='{body.real_name}' "
         f"sheet_id={body.sheet_id} 答对 {correct_count}/{settings.REG_QUESTION_COUNT}",
@@ -323,7 +323,7 @@ async def register_user(body: RegisterRequest, request: Request):
     async with get_session() as session:
         duplicate = await UsersDAO.find_duplicate_student(session, body.real_name, body.class_)
         if duplicate:
-            custom_log(
+            CustomLog(
                 "WARNING",
                 f"[Register] 重复学生 real_name='{body.real_name}' class='{body.class_}'",
             )
@@ -350,7 +350,7 @@ async def register_user(body: RegisterRequest, request: Request):
     try:
         created_user = await UsersDAO().create(user_data)
     except Exception as exc:
-        custom_log("ERROR", f"[Register] 用户写入数据库失败: {exc}")
+        CustomLog("ERROR", f"[Register] 用户写入数据库失败: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="注册失败，请稍后重试",
@@ -361,13 +361,13 @@ async def register_user(body: RegisterRequest, request: Request):
         redis.delete(sheet_redis_key)
         redis.delete(sheet_attempts_key)
     except Exception as exc:
-        custom_log("WARNING", f"[Register] 清理 Redis 问题表失败（不影响注册结果）: {exc}")
+        CustomLog("WARNING", f"[Register] 清理 Redis 问题表失败（不影响注册结果）: {exc}")
 
     # ----------------------------------------------------------------
     # 步骤 7：颁发临时 token（仅用于 Step 2 完成注册）
     # ----------------------------------------------------------------
     temp_token = create_temp_token(subject=new_uuid, purpose="register_complete", expires_minutes=settings.TEMP_TOKEN_EXPIRE_MINUTES)
-    custom_log("SUCCESS", f"[Register] 新用户答题通过 uuid={new_uuid} real_name='{body.real_name}'")
+    CustomLog("SUCCESS", f"[Register] 新用户答题通过 uuid={new_uuid} real_name='{body.real_name}'")
 
     return {
         "temp_token": temp_token,
@@ -440,7 +440,7 @@ async def complete_register(
     plaintext, token_hash = generate_refresh_token()
     await RefreshTokensDAO.create(user_uuid=user_uuid, token_hash=token_hash)
 
-    custom_log("SUCCESS", f"[RegisterComplete] uuid={user_uuid} username={body.username} 注册完成")
+    CustomLog("SUCCESS", f"[RegisterComplete] uuid={user_uuid} username={body.username} 注册完成")
 
     return {
         "access_token": access_token,
@@ -573,7 +573,7 @@ async def change_password(
     # 步骤 1：检查账号状态（已封禁或异常的账号拒绝操作）
     # ----------------------------------------------------------------
     if current_user.get("current_status") not in (None, "normal"):
-        custom_log("WARNING", f"[ChangePassword] uuid={user_uuid} 账号状态异常，拒绝修改密码")
+        CustomLog("WARNING", f"[ChangePassword] uuid={user_uuid} 账号状态异常，拒绝修改密码")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="账号状态异常，无法修改密码",
@@ -588,7 +588,7 @@ async def change_password(
         pwd_chg_key = f"user:pwd_chg:{user_uuid}:{today}"
         attempts = _redis_get_int(redis, pwd_chg_key)
         if attempts >= settings.MAX_PWD_CHG_ATTEMPTS_PER_DAY:
-            custom_log("WARNING", f"[ChangePassword] uuid={user_uuid} 今日修改密码次数已达上限")
+            CustomLog("WARNING", f"[ChangePassword] uuid={user_uuid} 今日修改密码次数已达上限")
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"今日修改密码次数已达上限（{settings.MAX_PWD_CHG_ATTEMPTS_PER_DAY} 次），请明日再试",
@@ -602,7 +602,7 @@ async def change_password(
     async with get_session() as session:
         current_hashed: str | None = await UsersDAO.find_password_hash(session, user_uuid)
     if not current_hashed:
-        custom_log("WARNING", f"[ChangePassword] uuid={user_uuid} 账号未设置密码，无法通过旧密码验证")
+        CustomLog("WARNING", f"[ChangePassword] uuid={user_uuid} 账号未设置密码，无法通过旧密码验证")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="当前账号未设置密码，无法通过旧密码验证修改密码",
@@ -612,7 +612,7 @@ async def change_password(
     # 步骤 4：验证旧密码
     # ----------------------------------------------------------------
     if not verify_password(body.old_password, current_hashed):
-        custom_log("WARNING", f"[ChangePassword] uuid={user_uuid} 旧密码验证失败")
+        CustomLog("WARNING", f"[ChangePassword] uuid={user_uuid} 旧密码验证失败")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="旧密码不正确",
@@ -634,14 +634,14 @@ async def change_password(
     try:
         updated = await UsersDAO().update(user_uuid, {"password": new_hashed})
     except Exception as exc:
-        custom_log("ERROR", f"[ChangePassword] uuid={user_uuid} 密码更新失败: {exc}")
+        CustomLog("ERROR", f"[ChangePassword] uuid={user_uuid} 密码更新失败: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="密码修改失败，请稍后重试",
         )
 
     if updated is None:
-        custom_log("ERROR", f"[ChangePassword] uuid={user_uuid} 用户不存在（update 返回 None）")
+        CustomLog("ERROR", f"[ChangePassword] uuid={user_uuid} 用户不存在（update 返回 None）")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="用户不存在",
@@ -656,7 +656,7 @@ async def change_password(
         token_hash = hashlib.sha256(body.refresh_token.encode()).hexdigest()
         await RefreshTokensDAO.revoke(token_hash)
 
-    custom_log("SUCCESS", f"[ChangePassword] uuid={user_uuid} 密码修改成功")
+    CustomLog("SUCCESS", f"[ChangePassword] uuid={user_uuid} 密码修改成功")
     return {"message": "密码修改成功"}
 
 
@@ -682,7 +682,7 @@ async def update_profile(
     # 检查账号状态
     # ----------------------------------------------------------------
     if current_user.get("current_status") not in (None, "normal"):
-        custom_log("WARNING", f"[UpdateProfile] uuid={user_uuid} 账号状态异常，拒绝修改信息")
+        CustomLog("WARNING", f"[UpdateProfile] uuid={user_uuid} 账号状态异常，拒绝修改信息")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="账号状态异常，无法修改个人信息",
@@ -717,7 +717,7 @@ async def update_profile(
                 session, effective_real_name, effective_class, user_uuid
             )
         if duplicate:
-            custom_log(
+            CustomLog(
                 "WARNING",
                 f"[UpdateProfile] uuid={user_uuid} real_name='{effective_real_name}' "
                 f"class='{effective_class}' 与已有用户冲突",
@@ -733,20 +733,20 @@ async def update_profile(
     try:
         updated = await UsersDAO().update(user_uuid, update_data)
     except Exception as exc:
-        custom_log("ERROR", f"[UpdateProfile] uuid={user_uuid} 个人信息更新失败: {exc}")
+        CustomLog("ERROR", f"[UpdateProfile] uuid={user_uuid} 个人信息更新失败: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="个人信息修改失败，请稍后重试",
         )
 
     if updated is None:
-        custom_log("ERROR", f"[UpdateProfile] uuid={user_uuid} 用户不存在（update 返回 None）")
+        CustomLog("ERROR", f"[UpdateProfile] uuid={user_uuid} 用户不存在（update 返回 None）")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="用户不存在",
         )
 
-    custom_log("SUCCESS", f"[UpdateProfile] uuid={user_uuid} 个人信息修改成功 fields={list(update_data.keys())}")
+    CustomLog("SUCCESS", f"[UpdateProfile] uuid={user_uuid} 个人信息修改成功 fields={list(update_data.keys())}")
     return {
         "uuid": updated["uuid"],
         "nickname": updated["nickname"],
@@ -850,6 +850,6 @@ async def delete_account(
     await RefreshTokensDAO.revoke_all_for_user(user_uuid)
     invalidate_user_cache(user_uuid)
 
-    custom_log("SUCCESS", f"[DeleteAccount] uuid={user_uuid} 已进入注销冷却期，预定删除时间={deletion_time.isoformat()}")
+    CustomLog("SUCCESS", f"[DeleteAccount] uuid={user_uuid} 已进入注销冷却期，预定删除时间={deletion_time.isoformat()}")
 
     return {"message": "账号已进入注销冷却期，30天内登录可恢复"}

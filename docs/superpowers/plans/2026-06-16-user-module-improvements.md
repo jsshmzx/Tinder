@@ -523,7 +523,7 @@ from core.database.connection.redis import redis_conn
 from core.database.dao.refresh_tokens import RefreshTokensDAO
 from core.database.dao.register_questions import RegisterQuestionsDAO
 from core.database.dao.users import UsersDAO
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import custom_log
 from core.middleware.auth.dependencies import get_current_user, get_temp_user, invalidate_user_cache
 from core.middleware.firewall.helpers import get_client_ip
 from core.security.hash import get_password_hash, verify_password
@@ -924,7 +924,7 @@ from sqlalchemy import select
 from core.database.connection.pgsql import get_session
 from core.database.dao.refresh_tokens import RefreshTokensDAO
 from core.database.dao.users import User
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import custom_log
 
 
 async def cleanup_expired_deletions() -> None:
@@ -973,7 +973,7 @@ async def cleanup_expired_deletions() -> None:
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import custom_log
 
 scheduler = AsyncIOScheduler()
 

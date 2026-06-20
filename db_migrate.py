@@ -4,7 +4,7 @@ from psycopg2 import sql
 import os
 from datetime import datetime
 import dotenv
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import CustomLog
 
 # 连接数据库
 # 从环境变量获取 DATABASE_URL
@@ -20,10 +20,10 @@ def connect_to_database():
     
     try:
         conn = psycopg2.connect(url)
-        custom_log("SUCCESS", "数据库连接成功")
+        CustomLog("SUCCESS", "数据库连接成功")
         return conn
     except psycopg2.Error as e:
-        custom_log("ERROR", f"数据库连接失败: {e}")
+        CustomLog("ERROR", f"数据库连接失败: {e}")
         raise
 
 # 创建migration_history表
@@ -45,11 +45,11 @@ def create_migration_history_table(conn):
         
         cursor.execute(create_table_sql)
         conn.commit()
-        custom_log("SUCCESS", "migration_history 表创建成功")
+        CustomLog("SUCCESS", "migration_history 表创建成功")
         
     except psycopg2.Error as e:
         conn.rollback()
-        custom_log("ERROR", f"创建表失败: {e}")
+        CustomLog("ERROR", f"创建表失败: {e}")
         raise
     finally:
         cursor.close()
@@ -61,7 +61,7 @@ def execute_migrations(conn):
     """执行迁移脚本"""
     for migration in migration_history:
         if migration not in os.listdir('core/database/migrations/SQL'):
-            custom_log("ERROR", f"迁移脚本不存在: {migration}")
+            CustomLog("ERROR", f"迁移脚本不存在: {migration}")
             continue
         cursor = conn.cursor()
         try:
@@ -78,12 +78,12 @@ def execute_migrations(conn):
                 insert_sql = "INSERT INTO migration_history (migration_name, status, executed_at) VALUES (%s, %s, CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai');"
                 cursor.execute(insert_sql, (migration, 'success'))
                 conn.commit()
-                custom_log("SUCCESS", f"迁移脚本执行成功: {migration}")
+                CustomLog("SUCCESS", f"迁移脚本执行成功: {migration}")
         except Exception as e:
             conn.rollback()
             cursor.execute("INSERT INTO migration_history (migration_name, status, error_message) VALUES (%s, %s, %s);", (migration, 'failed', str(e)))
             conn.commit()
-            custom_log("ERROR", f"执行迁移脚本失败: {migration}, 错误: {e}")
+            CustomLog("ERROR", f"执行迁移脚本失败: {migration}, 错误: {e}")
         finally:
             cursor.close()
 
@@ -101,8 +101,8 @@ if __name__ == "__main__":
         
         # 关闭连接
         conn.close()
-        custom_log("SUCCESS", "数据库迁移完成，连接已关闭")
+        CustomLog("SUCCESS", "数据库迁移完成，连接已关闭")
         
     except Exception as e:
-        custom_log("ERROR", f"执行迁移时出错: {e}")
+        CustomLog("ERROR", f"执行迁移时出错: {e}")
         exit(1)

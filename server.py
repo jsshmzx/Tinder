@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import platform
 
 from core.config import settings
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import CustomLog
 from core.middleware.firewall.index import FirewallMiddleware
 from core.database.connection.redis import redis_conn
 from core.database.connection.pgsql import dispose_engine, get_session
@@ -28,9 +28,9 @@ async def lifespan(app: FastAPI):
     try:
         async with get_session() as session:
             await session.execute(text("SELECT 1"))
-        custom_log("SUCCESS", "PostgreSQL 连接成功")
+        CustomLog("SUCCESS", "PostgreSQL 连接成功")
     except Exception as exc:
-        custom_log("ERROR", f"PostgreSQL 连接失败: {exc}")
+        CustomLog("ERROR", f"PostgreSQL 连接失败: {exc}")
     redis_conn.start()
 
     # 启动定时任务调度器
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
     # 停止定时任务调度器
     stop_scheduler()
     await dispose_engine()
-    custom_log("SUCCESS", "PostgreSQL 连接已关闭")
+    CustomLog("SUCCESS", "PostgreSQL 连接已关闭")
     redis_conn.stop()
 
 
@@ -60,7 +60,7 @@ app.add_middleware(
 # 注册防火墙中间件（在 CORS 之后，路由之前）
 if settings.FW_ENABLED:
     app.add_middleware(FirewallMiddleware)
-    custom_log("INFO", "防火墙已启用（FW_ENABLED=true）")
+    CustomLog("INFO", "防火墙已启用（FW_ENABLED=true）")
 # 导入模块
 from modules.index.index import app as index_router
 from modules.api.v1.router import router as api_v1_router
@@ -69,11 +69,11 @@ app.include_router(index_router)
 app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
 
 # 尝试启动服务器
-custom_log("SUCCESS", "Tinder服务器启动中...")
-custom_log("SUCCESS", f"===================================================")
-custom_log("SUCCESS", f"Python版本: {platform.python_version()}")
-custom_log("SUCCESS", f"当前APP_ENV: {settings.APP_ENV}")
-custom_log("SUCCESS", f"===================================================")
+CustomLog("SUCCESS", "Tinder服务器启动中...")
+CustomLog("SUCCESS", f"===================================================")
+CustomLog("SUCCESS", f"Python版本: {platform.python_version()}")
+CustomLog("SUCCESS", f"当前APP_ENV: {settings.APP_ENV}")
+CustomLog("SUCCESS", f"===================================================")
 
 if __name__ == "__main__":
     try:
@@ -89,4 +89,4 @@ if __name__ == "__main__":
             log_level=log_level
         )
     except Exception as e:
-        custom_log("ERROR", f"Error starting server: {e}")
+        CustomLog("ERROR", f"Error starting server: {e}")

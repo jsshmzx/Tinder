@@ -12,7 +12,7 @@ from core.database.dao.refresh_tokens import RefreshTokensDAO
 from core.security.hash import verify_password
 from core.security.jwt_handler import create_access_token, generate_refresh_token
 from core.middleware.auth.dependencies import get_current_user
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import CustomLog
 
 router = APIRouter(prefix="/auth", tags=["Auth v1"])
 
@@ -94,7 +94,7 @@ async def login(request: Request, body: LoginRequest):
                     "current_status": "normal",
                     "deletion_scheduled_at": None,
                 })
-                custom_log("SUCCESS", f"[Login] uuid={user_uuid} 冷却期内登录，账号已恢复")
+                CustomLog("SUCCESS", f"[Login] uuid={user_uuid} 冷却期内登录，账号已恢复")
             else:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,

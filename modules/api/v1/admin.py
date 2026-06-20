@@ -11,7 +11,7 @@ from core.database.dao.users import UsersDAO, User
 from core.middleware.auth.dependencies import MinRoleChecker, invalidate_user_cache, get_current_user, USER_CACHE_PREFIX
 from core.security.hash import get_password_hash
 from core.security.rbac import Role
-from core.helper.ContainerCustomLog.index import custom_log
+from core.helper.CustomLog.index import CustomLog
 
 
 router = APIRouter(prefix="/admin", tags=["Admin v1"])
@@ -45,7 +45,7 @@ def _batch_invalidate_user_cache(uuids: list[str]) -> None:
             pipe.delete(f"{USER_CACHE_PREFIX}{uid}")
         pipe.execute()
     except Exception as exc:
-        custom_log("WARNING", f"[Admin] 批量缓存失效失败 count={len(uuids)} exc={exc}")
+        CustomLog("WARNING", f"[Admin] 批量缓存失效失败 count={len(uuids)} exc={exc}")
 
 
 @router.get("/users", response_model=list[dict[str, Any]])
@@ -171,7 +171,7 @@ async def admin_batch_delete_users(
 
     # 批量失效 Redis 缓存（使用 pipeline 减少网络往返）
     _batch_invalidate_user_cache(uuids)
-    custom_log("SUCCESS", f"[Admin] 批量删除用户 count={len(uuids)} actual_deleted={deleted_count}")
+    CustomLog("SUCCESS", f"[Admin] 批量删除用户 count={len(uuids)} actual_deleted={deleted_count}")
     return {"deleted": deleted_count}
 
 
@@ -242,7 +242,7 @@ async def admin_disable_user(
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    custom_log("SUCCESS", f"[Admin] 禁用用户 uuid={user_uuid}")
+    CustomLog("SUCCESS", f"[Admin] 禁用用户 uuid={user_uuid}")
     return updated
 
 
@@ -256,7 +256,7 @@ async def admin_enable_user(
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    custom_log("SUCCESS", f"[Admin] 启用用户 uuid={user_uuid}")
+    CustomLog("SUCCESS", f"[Admin] 启用用户 uuid={user_uuid}")
     return updated
 
 
@@ -270,7 +270,7 @@ async def admin_ban_user(
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    custom_log("SUCCESS", f"[Admin] 封禁用户 uuid={user_uuid}")
+    CustomLog("SUCCESS", f"[Admin] 封禁用户 uuid={user_uuid}")
     return updated
 
 
@@ -284,6 +284,6 @@ async def admin_unban_user(
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    custom_log("SUCCESS", f"[Admin] 解封用户 uuid={user_uuid}")
+    CustomLog("SUCCESS", f"[Admin] 解封用户 uuid={user_uuid}")
     return updated
 

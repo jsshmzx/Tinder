@@ -141,7 +141,7 @@ pytest tests/ --tb=short
 
 ## Logging
 
-- Use `custom_log(level, message)` from `core.helper.ContainerCustomLog.index` for all application logging. Do **not** use `print()` or Python's `logging` module directly.
+- Use `custom_log(level, message)` from `core.helper.CustomLog.index` for all application logging. Do **not** use `print()` or Python's `logging` module directly.
 - Supported levels: `"SUCCESS"`, `"WARNING"`, `"ERROR"` (case-insensitive).
 
 ## Environment Variables
