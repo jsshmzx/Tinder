@@ -208,3 +208,12 @@ class UsersDAO(BaseDAO):
             "banned": status_counts.get("banned", 0),
             "pending_deletion": status_counts.get("pending_deletion", 0),
         }
+
+    @staticmethod
+    async def find_by_uuids(session: AsyncSession, uuids: list[str]) -> list[dict[str, Any]]:
+        """根据 uuid 列表批量查询用户，返回字典列表。"""
+        result = await session.scalars(
+            select(User).where(User.uuid.in_(uuids))
+        )
+        dao = UsersDAO()
+        return [dao._to_dict(obj) for obj in result.all()]

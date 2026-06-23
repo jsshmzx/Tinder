@@ -1,4 +1,5 @@
 import json
+import re
 import uuid as uuid_lib
 from typing import Any, Literal
 
@@ -11,6 +12,7 @@ from core.database.connection.pgsql import get_session
 from core.database.connection.redis import redis_conn
 from core.database.dao.register_questions import RegisterQuestionsDAO
 from core.database.dao.users import UsersDAO, User
+from core.database.dao.refresh_tokens import RefreshTokensDAO
 from core.middleware.auth.dependencies import MinRoleChecker, invalidate_user_cache, get_current_user, USER_CACHE_PREFIX
 from core.security.hash import get_password_hash
 from core.security.rbac import Role
@@ -49,6 +51,25 @@ def _batch_invalidate_user_cache(uuids: list[str]) -> None:
         pipe.execute()
     except Exception as exc:
         CustomLog("WARNING", f"[Admin] 批量缓存失效失败 count={len(uuids)} exc={exc}")
+
+
+class ResetPasswordRequest(BaseModel):
+    """管理员重置密码请求体。"""
+    super_password: str = Field(..., description="超级密码")
+    new_password: str = Field(..., min_length=64, max_length=64, description="新密码（64 字符 SHA256 hex）")
+
+    @field_validator("new_password")
+    @classmethod
+    def password_must_be_hex64(cls, v: str) -> str:
+        if not re.fullmatch(r"[a-fA-F0-9]{64}", v):
+            raise ValueError("密码必须为 64 字符 SHA256 哈希值（hex）")
+        return v
+
+
+class SensitiveDataRequest(BaseModel):
+    """敏感信息查看请求体。"""
+    super_password: str = Field(..., description="超级密码")
+    uuids: list[str] = Field(..., min_length=1, max_length=50, description="要查询的用户 UUID 列表")
 
 
 @router.get("/users", response_model=list[dict[str, Any]])
@@ -289,6 +310,71 @@ async def admin_unban_user(
     invalidate_user_cache(user_uuid)
     CustomLog("SUCCESS", f"[Admin] 解封用户 uuid={user_uuid}")
     return updated
+
+
+@router.post("/users/{user_uuid}/reset-password", response_model=dict[str, Any])
+async def admin_reset_password(
+    user_uuid: str,
+    payload: ResetPasswordRequest,
+    _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
+):
+    """管理员重置用户密码。
+
+    安全限制：
+    1. 必须提供超级密码 (SUPER_PASSWORD)
+    2. 新密码必须是 64 字符 SHA256 hex
+    3. 重置后撤销该用户所有 refresh token，强制重新登录
+
+    允许重置任何用户的密码（包括管理员自己的）。
+    """
+    # 1. 校验超级密码
+    _verify_super_password(payload.super_password)
+
+    # 2. 哈希新密码并更新
+    new_hashed = get_password_hash(payload.new_password)
+    updated = await UsersDAO().update(user_uuid, {"password": new_hashed})
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
+    # 3. 撤销所有 refresh token，强制用户重新登录
+    await RefreshTokensDAO.revoke_all_for_user(user_uuid)
+
+    # 4. 失效 Redis 缓存
+    invalidate_user_cache(user_uuid)
+
+    CustomLog("SUCCESS", f"[Admin] 管理员重置密码 uuid={user_uuid}")
+    return {"message": "密码重置成功"}
+
+
+@router.post("/users/sensitive-data", response_model=dict[str, Any])
+async def admin_sensitive_data(
+    payload: SensitiveDataRequest,
+    _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
+):
+    """管理员查看用户敏感信息（真实姓名、班级）。
+
+    安全限制：
+    1. 必须提供超级密码 (SUPER_PASSWORD)
+    2. 每次最多查询 50 个用户
+    """
+    # 1. 校验超级密码
+    _verify_super_password(payload.super_password)
+
+    # 2. 批量查询用户
+    async with get_session() as session:
+        users = await UsersDAO.find_by_uuids(session, payload.uuids)
+
+    # 3. 只返回 real_name 和 class
+    result: dict[str, dict[str, str | None]] = {}
+    for user in users:
+        uuid = user.get("uuid", "")
+        result[uuid] = {
+            "real_name": user.get("real_name"),
+            "class": user.get("class"),
+        }
+
+    CustomLog("INFO", f"[Admin] 管理员查看敏感信息 count={len(payload.uuids)}")
+    return {"data": result}
 
 
 # =========================================================================
