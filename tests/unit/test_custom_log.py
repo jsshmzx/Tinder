@@ -132,6 +132,8 @@ def test_normal_style_no_color_code(capsys):
 
 def test_print_out_false(capsys):
     print("\n[TEST] print_out=False 时不输出任何内容")
+    # 先清空 capsys 中的 test print 内容
+    capsys.readouterr()
     LOG_CLS("SUCCESS", "should not appear", print_out=False, sid=False)
     out = capsys.readouterr().out
     assert out == ""

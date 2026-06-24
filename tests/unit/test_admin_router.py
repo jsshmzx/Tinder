@@ -206,18 +206,32 @@ def test_admin_update_user_returns_404_when_not_found(admin_client, monkeypatch)
 
 
 def test_admin_delete_user(admin_client, monkeypatch):
+    monkeypatch.setattr("core.config.settings.SUPER_PASSWORD", "super-secret")
     monkeypatch.setattr(admin_v1.UsersDAO, "delete", _mock_delete, raising=False)
     monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+    monkeypatch.setattr(admin_v1.UsersDAO, "count_by_role", _mock_count_users, raising=False)
+    monkeypatch.setattr("core.database.dao.base.get_session", _fake_session)
 
-    resp = admin_client.delete("/admin/users/u-1")
+    async def _mock_find_by_uuid(self, uuid):
+        return {"uuid": uuid, "user_role": "normal-user"}
+    monkeypatch.setattr(admin_v1.UsersDAO, "find_by_uuid", _mock_find_by_uuid, raising=False)
+
+    resp = admin_client.request("DELETE", "/admin/users/u-1", json={"super_password": "super-secret"})
     assert resp.status_code == 200
     assert resp.json()["success"] is True
 
 
 def test_admin_delete_user_returns_404(admin_client, monkeypatch):
+    monkeypatch.setattr("core.config.settings.SUPER_PASSWORD", "super-secret")
     monkeypatch.setattr(admin_v1.UsersDAO, "delete", _mock_delete, raising=False)
+    monkeypatch.setattr("core.database.dao.base.get_session", _fake_session)
 
-    resp = admin_client.delete("/admin/users/nonexistent-uuid")
+    async def _mock_find_by_uuid(self, uuid):
+        return {"uuid": uuid, "user_role": "normal-user"}
+    monkeypatch.setattr(admin_v1.UsersDAO, "find_by_uuid", _mock_find_by_uuid, raising=False)
+    monkeypatch.setattr(admin_v1.UsersDAO, "count_by_role", _mock_count_users, raising=False)
+
+    resp = admin_client.request("DELETE", "/admin/users/nonexistent-uuid", json={"super_password": "super-secret"})
     assert resp.status_code == 404
 
 

@@ -481,6 +481,8 @@ def client_with_auth(monkeypatch) -> TestClient:
     async def fake_find_password_hash(session, user_uuid):
         return _OLD_HEX
     monkeypatch.setattr(users_v1.UsersDAO, "find_password_hash", fake_find_password_hash)
+    # Mock get_session: change_password 现在使用 DB 查询密码哈希
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
     # Mock revoke_all_for_user: 变更密码后吊销所有 token（单元测试无需真实 DB）
     async def fake_revoke_all_for_user(user_uuid):
         pass
@@ -535,6 +537,7 @@ def test_change_password_returns_400_when_no_password_set(monkeypatch):
     async def fake_find_password_hash(session, user_uuid):
         return None
     monkeypatch.setattr(users_v1.UsersDAO, "find_password_hash", fake_find_password_hash)
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
     client = TestClient(app)
 
     response = client.patch(

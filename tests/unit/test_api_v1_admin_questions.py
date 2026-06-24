@@ -77,7 +77,7 @@ def test_create_question_choice(client, monkeypatch):
 
     created = {}
 
-    async def fake_create(data):
+    async def fake_create(self, data):
         data["uuid"] = str(uuid_lib.uuid4())
         data["id"] = 1
         created.update(data)
@@ -129,7 +129,7 @@ def test_create_question_choice_less_than_2_options(client, monkeypatch):
 def test_create_question_true_false_valid(client, monkeypatch):
     from modules.api.v1 import admin as admin_module
     created = {}
-    async def fake_create(data):
+    async def fake_create(self, data):
         data["uuid"] = str(uuid_lib.uuid4())
         data["id"] = 1
         created.update(data)
@@ -158,7 +158,7 @@ def test_create_question_true_false_invalid_answer(client, monkeypatch):
 def test_create_question_fill_blank(client, monkeypatch):
     from modules.api.v1 import admin as admin_module
     created = {}
-    async def fake_create(data):
+    async def fake_create(self, data):
         data["uuid"] = str(uuid_lib.uuid4())
         data["id"] = 1
         created.update(data)
