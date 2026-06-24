@@ -17,6 +17,21 @@ from core.helper.CustomLog.index import CustomLog
 router = APIRouter(prefix="/auth", tags=["Auth v1"])
 
 
+class LoginRequest(BaseModel):
+    """JSON 登录请求体。"""
+
+    username: str = Field(..., min_length=1, description="用户名或邮箱")
+    password: str = Field(..., min_length=1, description="SHA256 双重哈希后的 hex 字符串（64 字符）")
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str
+
+
 def _login_redis_incr(key: str, ttl: int) -> int:
     """递增 Redis 计数器，返回递增后的值。"""
     from core.database.connection.redis import redis_conn
@@ -115,21 +130,6 @@ async def login(request: Request, body: LoginRequest):
         "refresh_token": plaintext,
         "token_type": "bearer",
     }
-
-
-class LoginRequest(BaseModel):
-    """JSON 登录请求体。"""
-
-    username: str = Field(..., min_length=1, description="用户名或邮箱")
-    password: str = Field(..., min_length=1, description="SHA256 双重哈希后的 hex 字符串（64 字符）")
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-class LogoutRequest(BaseModel):
-    refresh_token: str
 
 
 @router.post("/refresh", response_model=dict[str, Any])

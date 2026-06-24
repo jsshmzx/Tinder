@@ -387,6 +387,39 @@ async def register_user(body: RegisterRequest, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Pydantic — CompleteRegisterRequest
+# ---------------------------------------------------------------------------
+
+
+class CompleteRegisterRequest(BaseModel):
+    """Step 2 完成注册请求体。"""
+
+    username: str = Field(
+        ..., min_length=3, max_length=20, description="用户名（3-20 字符，仅字母数字下划线）"
+    )
+    password: str = Field(..., description="SHA256 双重哈希后的 64 字符 hex 字符串")
+    email: str | None = Field(None, description="邮箱（可选）")
+
+    @field_validator("username")
+    @classmethod
+    def username_alphanumeric(cls, v: str) -> str:
+        """仅允许字母、数字、下划线。"""
+        import re
+        if not re.fullmatch(r"[a-zA-Z0-9_]+", v):
+            raise ValueError("用户名仅允许字母、数字和下划线")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def password_must_be_hex64(cls, v: str) -> str:
+        """密码必须为 64 字符 SHA256 hex 字符串。"""
+        import re
+        if len(v) != 64 or not re.fullmatch(r"[a-fA-F0-9]{64}", v):
+            raise ValueError("密码必须为 64 字符 SHA256 哈希值（hex）")
+        return v
+
+
+# ---------------------------------------------------------------------------
 # POST /users/register/complete — Step 2 完成注册
 # ---------------------------------------------------------------------------
 
@@ -483,34 +516,6 @@ class ChangePasswordRequest(BaseModel):
         """密码必须为 64 字符 SHA256 hex 字符串。"""
         import re
         if not re.fullmatch(r"[a-fA-F0-9]{64}", v):
-            raise ValueError("密码必须为 64 字符 SHA256 哈希值（hex）")
-        return v
-
-
-class CompleteRegisterRequest(BaseModel):
-    """Step 2 完成注册请求体。"""
-
-    username: str = Field(
-        ..., min_length=3, max_length=20, description="用户名（3-20 字符，仅字母数字下划线）"
-    )
-    password: str = Field(..., description="SHA256 双重哈希后的 64 字符 hex 字符串")
-    email: str | None = Field(None, description="邮箱（可选）")
-
-    @field_validator("username")
-    @classmethod
-    def username_alphanumeric(cls, v: str) -> str:
-        """仅允许字母、数字、下划线。"""
-        import re
-        if not re.fullmatch(r"[a-zA-Z0-9_]+", v):
-            raise ValueError("用户名仅允许字母、数字和下划线")
-        return v
-
-    @field_validator("password")
-    @classmethod
-    def password_must_be_hex64(cls, v: str) -> str:
-        """密码必须为 64 字符 SHA256 hex 字符串。"""
-        import re
-        if len(v) != 64 or not re.fullmatch(r"[a-fA-F0-9]{64}", v):
             raise ValueError("密码必须为 64 字符 SHA256 哈希值（hex）")
         return v
 
