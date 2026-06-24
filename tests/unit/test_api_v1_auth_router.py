@@ -372,7 +372,6 @@ def test_login_returns_429_when_username_rate_limited(client, monkeypatch):
 
 def test_refresh_returns_401_when_user_not_found(client, monkeypatch):
     """refresh 时用户不存在返回 401."""
-    import hashlib
 
     plaintext = "some-refresh-token"
     token_hash = hashlib.sha256(plaintext.encode()).hexdigest()
@@ -395,7 +394,6 @@ def test_refresh_returns_401_when_user_not_found(client, monkeypatch):
 
 def test_refresh_returns_401_when_user_disabled(client, monkeypatch):
     """refresh 时用户已被禁用返回 401."""
-    import hashlib
 
     plaintext = "some-refresh-token"
     token_hash = hashlib.sha256(plaintext.encode()).hexdigest()
