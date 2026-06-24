@@ -277,3 +277,61 @@ def test_questions_stats(client, monkeypatch):
     assert data["choice"] == 10
     assert data["true_false"] == 5
     assert data["fill_blank"] == 3
+
+
+def test_create_question_choice_rejects_duplicate_options(client, monkeypatch):
+    payload = {
+        "question": "测试？",
+        "question_type": "choice",
+        "answer": "A",
+        "options": ["A", "A", "B"],
+    }
+    response = client.post("/admin/questions", json=payload)
+    assert response.status_code == 422
+
+
+def test_update_question_true_false_validates_answer(client, monkeypatch):
+    from modules.api.v1 import admin as admin_module
+
+    async def fake_find_by_uuid(self, uuid):
+        return {"uuid": uuid, "question_type": "true_false"}
+
+    monkeypatch.setattr(admin_module.RegisterQuestionsDAO, "find_by_uuid", fake_find_by_uuid, raising=False)
+
+    response = client.patch(
+        "/admin/questions/q-1",
+        json={"answer": "maybe"},
+    )
+    assert response.status_code == 400
+    assert "判断题" in response.json()["detail"]
+
+
+def test_update_question_at_least_one_field(client, monkeypatch):
+    from modules.api.v1 import admin as admin_module
+
+    async def fake_find_by_uuid(self, uuid):
+        return {"uuid": uuid, "question_type": "choice"}
+
+    monkeypatch.setattr(admin_module.RegisterQuestionsDAO, "find_by_uuid", fake_find_by_uuid, raising=False)
+
+    response = client.patch(
+        "/admin/questions/q-1",
+        json={},
+    )
+    assert response.status_code == 422
+
+
+def test_update_question_choice_answer_not_in_options(client, monkeypatch):
+    from modules.api.v1 import admin as admin_module
+
+    async def fake_find_by_uuid(self, uuid):
+        return {"uuid": uuid, "question_type": "choice"}
+
+    monkeypatch.setattr(admin_module.RegisterQuestionsDAO, "find_by_uuid", fake_find_by_uuid, raising=False)
+
+    response = client.patch(
+        "/admin/questions/q-1",
+        json={"answer": "C", "options": ["A", "B"]},
+    )
+    assert response.status_code == 400
+    assert "答案必须在选项中" in response.json()["detail"]
