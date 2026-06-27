@@ -5,7 +5,7 @@ pydantic==2.13.4
 psycopg2-binary==2.9.12
 asyncpg==0.31.0
 python-multipart==0.0.32
-redis==8.0.0
+redis==8.0.1
 sqlalchemy==2.0.50
 pytest==9.0.3
 pytest-asyncio==1.4.0
