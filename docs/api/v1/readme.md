@@ -26,6 +26,12 @@
 - [Admin — 管理员](#admin--管理员)
   - [用户管理](#用户管理)
   - [注册题目管理](#注册题目管理)
+  - [系统配置](#系统配置)
+  - [敏感信息查看](#敏感信息查看)
+- [Logs — 日志查询](#logs--日志查询)
+  - [GET /logs/system](#get-logssystem)
+  - [GET /logs/personal](#get-logspersonal)
+  - [GET /logs/personal/{user_uuid}](#get-logspersonaluser_uuid)
 - [错误码一览](#错误码一览)
 - [Redis Key 规范](#redis-key-规范)
 - [安全机制总结](#安全机制总结)
@@ -675,6 +681,71 @@
 
 **说明：** 解除封禁（状态设为 `normal`）。
 
+#### POST /admin/users/{user_uuid}/reset-password
+
+**说明：** 管理员重置指定用户密码。**高危操作**，需要超级密码。重置后该用户所有 Refresh Token 会被吊销，强制重新登录。
+
+**请求体：**
+
+```json
+{
+  "super_password": "<SUPER_PASSWORD>",
+  "new_password": "<64-char-SHA256-hex>"
+}
+```
+
+**成功响应：**
+
+```json
+{ "message": "密码重置成功" }
+```
+
+---
+
+### 敏感信息查看
+
+#### POST /admin/users/sensitive-data
+
+**说明：** 批量查看用户敏感信息（`real_name`、`class`）。**高危操作**，需要超级密码。
+
+**请求体：**
+
+```json
+{
+  "super_password": "<SUPER_PASSWORD>",
+  "uuids": ["uuid-1", "uuid-2"]
+}
+```
+
+**成功响应：**
+
+```json
+{
+  "data": {
+    "uuid-1": { "real_name": "张三", "class": "高一(1)班" },
+    "uuid-2": { "real_name": "李四", "class": "高二(2)班" }
+  }
+}
+```
+
+---
+
+### 系统配置
+
+#### POST /admin/config
+
+**说明：** 管理员查看系统配置（只读）。**高危操作**，需要超级密码。敏感配置项（数据库连接串、JWT 密钥、超级密码等）显示为 `******`。
+
+**请求体：**
+
+```json
+{
+  "super_password": "<SUPER_PASSWORD>"
+}
+```
+
+**成功响应：** 按分组返回配置项列表。
+
 ---
 
 ### 注册题目管理
@@ -775,6 +846,157 @@
 
 ---
 
+## Logs — 日志查询
+
+路由前缀：`/api/v1/logs`  
+来源文件：`modules/api/v1/logs.py`
+
+日志分为两类：
+
+- **系统日志（`system_logs`）**：记录全局性事件，如系统启动、配置变更、管理员批量操作、登录失败（无法关联到具体用户时）等。
+- **个人日志（`personal_logs`）**：记录与用户相关的操作，如登录/登出、资料修改、被管理员禁用/启用/封禁/删除、密码重置等。
+
+**权限规则：**
+
+| 日志类型 | 可访问角色 | 数据范围 |
+|----------|-----------|---------|
+| 系统日志 | 仅 `superadmin` | 全部 |
+| 个人日志 | `superadmin` | 全部或指定用户 |
+| 个人日志 | `normal-user` / `songlist_editor` | 仅本人 |
+
+---
+
+### GET /logs/system
+
+**说明：** 分页查询系统日志。
+
+**认证：** 需要（Bearer Token）
+
+**权限：** 仅 `superadmin`
+
+**查询参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `event_type` | string | — | 事件类型，如 `USER_BATCH_DELETE`、`CONFIG_VIEW` |
+| `log_type` | string | — | 日志类型，如 `auth`、`admin` |
+| `status` | string | — | 结果状态：`SUCCESS` / `FAIL` / `PARTIAL` |
+| `severity` | string | — | 严重程度：`INFO` / `WARN` / `ERROR` |
+| `service_name` | string | — | 服务名 |
+| `trace_id` | string | — | 全链路追踪 ID |
+| `client_ip` | string | — | 客户端 IP |
+| `keyword` | string | — | 内容关键词（模糊匹配 `content`） |
+| `start_time` | datetime | — | 开始时间（ISO 8601） |
+| `end_time` | datetime | — | 结束时间（ISO 8601） |
+| `limit` | integer | — | 每页数量（1–500，默认 100） |
+| `offset` | integer | — | 偏移量（默认 0） |
+
+**成功响应 `200 OK`：**
+
+```json
+{
+  "total": 156,
+  "items": [
+    {
+      "uuid": "log-uuid",
+      "log_level": "SUCCESS",
+      "log_type": "admin",
+      "event_type": "USER_BATCH_DELETE",
+      "status": "SUCCESS",
+      "severity": "INFO",
+      "content": "[Admin] 批量删除用户 count=2 actual_deleted=2",
+      "client_ip": "192.168.1.100",
+      "request_method": "DELETE",
+      "request_url": "http://localhost:1912/api/v1/admin/users/batch",
+      "trace_id": "trace-123",
+      "created_at": "2026-06-28T10:23:45.123000"
+    }
+  ]
+}
+```
+
+**错误响应：**
+
+| 状态码 | 场景 |
+|--------|------|
+| `401 Unauthorized` | Token 缺失、无效或过期 |
+| `403 Forbidden` | 非 `superadmin` 角色访问系统日志 |
+
+---
+
+### GET /logs/personal
+
+**说明：** 分页查询个人日志。普通用户只能查看自己的日志；`superadmin` 可通过 `user_uuid` 查询指定用户或全部日志。
+
+**认证：** 需要（Bearer Token）
+
+**查询参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `user_uuid` | string | — | **仅管理员可用**：指定用户 UUID |
+| `event_type` | string | — | 事件类型，如 `LOGIN`、`USER_DISABLE` |
+| `log_type` | string | — | 日志类型，如 `auth`、`admin` |
+| `status` | string | — | 结果状态：`SUCCESS` / `FAIL` |
+| `target_type` | string | — | 操作对象类型，如 `USER` |
+| `target_id` | string | — | 操作对象 ID |
+| `trace_id` | string | — | 全链路追踪 ID |
+| `client_ip` | string | — | 客户端 IP |
+| `keyword` | string | — | 内容关键词 |
+| `start_time` | datetime | — | 开始时间 |
+| `end_time` | datetime | — | 结束时间 |
+| `limit` | integer | — | 每页数量（1–500，默认 100） |
+| `offset` | integer | — | 偏移量（默认 0） |
+
+**成功响应 `200 OK`：**
+
+```json
+{
+  "total": 42,
+  "items": [
+    {
+      "uuid": "log-uuid",
+      "user_uuid": "user-uuid",
+      "log_level": "SUCCESS",
+      "log_type": "auth",
+      "event_type": "LOGIN",
+      "status": "SUCCESS",
+      "content": "[Login] 用户登录成功 username=testuser",
+      "client_ip": "192.168.1.100",
+      "request_method": "POST",
+      "request_url": "http://localhost:1912/api/v1/auth/login",
+      "trace_id": "trace-123",
+      "created_at": "2026-06-28T10:23:45.123000"
+    }
+  ]
+}
+```
+
+**错误响应：**
+
+| 状态码 | 场景 |
+|--------|------|
+| `401 Unauthorized` | Token 缺失、无效或过期 |
+| `403 Forbidden` | 普通用户尝试查看他人日志 |
+
+---
+
+### GET /logs/personal/{user_uuid}
+
+**说明：** 按用户 UUID 查询个人日志。权限规则同 `GET /logs/personal`。
+
+**认证：** 需要（Bearer Token）
+
+**路径参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `user_uuid` | string | ✓ | 要查询的用户 UUID |
+
+**查询参数与响应：** 同 `GET /logs/personal`。
+
+---
+
 ## 错误码一览
 
 | HTTP 状态码 | 含义 | 常见场景 |
@@ -845,3 +1067,4 @@
 | **账号注销冷却** | 30 天冷却期，期内登录自动恢复，期满物理删除 |
 | **输入校验** | Pydantic 模型层校验（长度、格式、控制字符拦截等） |
 | **应答计数器前置递增** | 注册校验中，速率计数器在校验答案前递增，防止暴力枚举正确答案 |
+| **操作审计日志** | 登录/登出、管理员用户操作、敏感信息/配置查看等行为记录到 `system_logs` / `personal_logs`，支持按角色隔离查询 |
