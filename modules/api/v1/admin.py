@@ -3,7 +3,7 @@ import re
 import uuid as uuid_lib
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select as sa_select
 
@@ -11,12 +11,12 @@ from core.config import settings
 from core.database.connection.pgsql import get_session
 from core.database.connection.redis import redis_conn
 from core.database.dao.register_questions import RegisterQuestionsDAO
-from core.database.dao.users import UsersDAO, User
 from core.database.dao.refresh_tokens import RefreshTokensDAO
-from core.middleware.auth.dependencies import MinRoleChecker, invalidate_user_cache, get_current_user, USER_CACHE_PREFIX
+from core.database.dao.users import UsersDAO, User
+from core.helper.CustomLog.index import CustomLog
+from core.middleware.auth.dependencies import USER_CACHE_PREFIX, MinRoleChecker, get_current_user, invalidate_user_cache
 from core.security.hash import get_password_hash
 from core.security.rbac import Role
-from core.helper.CustomLog.index import CustomLog
 
 
 router = APIRouter(prefix="/admin", tags=["Admin v1"])
@@ -37,6 +37,48 @@ def _verify_super_password(password: str) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="超级密码错误",
         )
+
+
+def _client_ip(request: Request) -> str:
+    """获取客户端真实 IP。"""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _log_user_personal_event(
+    *,
+    request: Request,
+    user_uuid: str,
+    event_type: str,
+    content: str,
+    status: str = "SUCCESS",
+    before_data: dict[str, Any] | None = None,
+    after_data: dict[str, Any] | None = None,
+    target_type: str = "USER",
+    target_name: str | None = None,
+) -> None:
+    """记录一条以目标用户为主体的个人日志。"""
+    CustomLog(
+        "SUCCESS" if status == "SUCCESS" else "WARNING",
+        content,
+        sid=True,
+        sidp="personal",
+        log_type="admin",
+        event_type=event_type,
+        status=status,
+        user_uuid=user_uuid,
+        target_type=target_type,
+        target_id=user_uuid,
+        target_name=target_name,
+        before_data=before_data,
+        after_data=after_data,
+        client_ip=_client_ip(request),
+        request_method=request.method,
+        request_url=str(request.url),
+        user_agent=request.headers.get("user-agent"),
+    )
 
 
 def _batch_invalidate_user_cache(uuids: list[str]) -> None:
@@ -135,22 +177,43 @@ async def admin_create_user(
 
 @router.patch("/users/{user_uuid}", response_model=dict[str, Any])
 async def admin_update_user(
+    request: Request,
     user_uuid: str,
     payload: dict[str, Any],
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员：编辑用户信息（含角色、状态）。"""
+    target_user = await UsersDAO().find_by_uuid(user_uuid)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
     if payload.get("password"):
         payload["password"] = get_password_hash(str(payload["password"]))
+
     updated = await UsersDAO().update(user_uuid, payload)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
+
+    # 记录变更字段的 before/after，敏感字段 password 不记录
+    changed_keys = {k for k in payload.keys() if k != "password"}
+    before_data = {k: target_user.get(k) for k in changed_keys if k in target_user}
+    after_data = {k: updated.get(k) for k in changed_keys if k in updated}
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_UPDATE",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 更新用户信息",
+        before_data=before_data,
+        after_data=after_data,
+    )
     return updated
 
 
 @router.delete("/users/batch", response_model=dict[str, Any])
 async def admin_batch_delete_users(
+    request: Request,
     payload: dict[str, Any],
     current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
@@ -195,12 +258,33 @@ async def admin_batch_delete_users(
 
     # 批量失效 Redis 缓存（使用 pipeline 减少网络往返）
     _batch_invalidate_user_cache(uuids)
-    CustomLog("SUCCESS", f"[Admin] 批量删除用户 count={len(uuids)} actual_deleted={deleted_count}")
+
+    # 为每个被删除用户记录个人日志，并记录一条系统日志
+    for uid in uuids:
+        _log_user_personal_event(
+            request=request,
+            user_uuid=uid,
+            event_type="USER_DELETE",
+            content=f"[Admin] 管理员 {current_user.get('uuid')} 批量删除用户",
+        )
+    CustomLog(
+        "SUCCESS",
+        f"[Admin] 批量删除用户 count={len(uuids)} actual_deleted={deleted_count}",
+        sid=True,
+        sidp="system",
+        log_type="admin",
+        event_type="USER_BATCH_DELETE",
+        client_ip=_client_ip(request),
+        request_method=request.method,
+        request_url=str(request.url),
+        user_agent=request.headers.get("user-agent"),
+    )
     return {"deleted": deleted_count}
 
 
 @router.delete("/users/{user_uuid}", response_model=dict[str, Any])
 async def admin_delete_user(
+    request: Request,
     user_uuid: str,
     payload: dict[str, Any],
     current_user: dict = Depends(get_current_user),
@@ -253,69 +337,135 @@ async def admin_delete_user(
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
+
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_DELETE",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 删除用户",
+        before_data={"user_role": target_role, "current_status": target_user.get("current_status")},
+    )
     return {"success": True}
 
 
 @router.post("/users/{user_uuid}/disable", response_model=dict[str, Any])
 async def admin_disable_user(
+    request: Request,
     user_uuid: str,
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员：禁用用户。"""
+    target_user = await UsersDAO().find_by_uuid(user_uuid)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
     updated = await UsersDAO().update(user_uuid, {"current_status": "disabled"})
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    CustomLog("SUCCESS", f"[Admin] 禁用用户 uuid={user_uuid}")
+
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_DISABLE",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 禁用用户",
+        before_data={"current_status": target_user.get("current_status")},
+        after_data={"current_status": "disabled"},
+    )
     return updated
 
 
 @router.post("/users/{user_uuid}/enable", response_model=dict[str, Any])
 async def admin_enable_user(
+    request: Request,
     user_uuid: str,
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员：启用用户。"""
+    target_user = await UsersDAO().find_by_uuid(user_uuid)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
     updated = await UsersDAO().update(user_uuid, {"current_status": "normal"})
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    CustomLog("SUCCESS", f"[Admin] 启用用户 uuid={user_uuid}")
+
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_ENABLE",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 启用用户",
+        before_data={"current_status": target_user.get("current_status")},
+        after_data={"current_status": "normal"},
+    )
     return updated
 
 
 @router.post("/users/{user_uuid}/ban", response_model=dict[str, Any])
 async def admin_ban_user(
+    request: Request,
     user_uuid: str,
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员：封禁用户。"""
+    target_user = await UsersDAO().find_by_uuid(user_uuid)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
     updated = await UsersDAO().update(user_uuid, {"current_status": "banned"})
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    CustomLog("SUCCESS", f"[Admin] 封禁用户 uuid={user_uuid}")
+
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_BAN",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 封禁用户",
+        before_data={"current_status": target_user.get("current_status")},
+        after_data={"current_status": "banned"},
+    )
     return updated
 
 
 @router.post("/users/{user_uuid}/unban", response_model=dict[str, Any])
 async def admin_unban_user(
+    request: Request,
     user_uuid: str,
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员：解除封禁。"""
+    target_user = await UsersDAO().find_by_uuid(user_uuid)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
     updated = await UsersDAO().update(user_uuid, {"current_status": "normal"})
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    CustomLog("SUCCESS", f"[Admin] 解封用户 uuid={user_uuid}")
+
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_UNBAN",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 解除封禁",
+        before_data={"current_status": target_user.get("current_status")},
+        after_data={"current_status": "normal"},
+    )
     return updated
 
 
 @router.post("/users/{user_uuid}/reset-password", response_model=dict[str, Any])
 async def admin_reset_password(
+    request: Request,
     user_uuid: str,
     payload: ResetPasswordRequest,
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员重置用户密码。
@@ -342,13 +492,20 @@ async def admin_reset_password(
     # 4. 失效 Redis 缓存
     invalidate_user_cache(user_uuid)
 
-    CustomLog("SUCCESS", f"[Admin] 管理员重置密码 uuid={user_uuid}")
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="PASSWORD_RESET",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 重置用户密码",
+    )
     return {"message": "密码重置成功"}
 
 
 @router.post("/users/sensitive-data", response_model=dict[str, Any])
 async def admin_sensitive_data(
+    request: Request,
     payload: SensitiveDataRequest,
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员查看用户敏感信息（真实姓名、班级）。
@@ -373,7 +530,18 @@ async def admin_sensitive_data(
             "class": user.get("class"),
         }
 
-    CustomLog("INFO", f"[Admin] 管理员查看敏感信息 count={len(payload.uuids)}")
+    CustomLog(
+        "INFO",
+        f"[Admin] 管理员 {current_user.get('uuid')} 查看敏感信息 count={len(payload.uuids)}",
+        sid=True,
+        sidp="system",
+        log_type="admin",
+        event_type="SENSITIVE_DATA_VIEW",
+        client_ip=_client_ip(request),
+        request_method=request.method,
+        request_url=str(request.url),
+        user_agent=request.headers.get("user-agent"),
+    )
     return {"data": result}
 
 
@@ -681,7 +849,9 @@ _CONFIG_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
 
 @router.post("/config", response_model=dict[str, Any])
 async def admin_view_config(
+    request: Request,
     payload: ConfigViewRequest,
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员查看系统配置（只读）。
@@ -712,7 +882,18 @@ async def admin_view_config(
             "items": config_items,
         })
 
-    CustomLog("INFO", "[Admin] 管理员查看系统配置")
+    CustomLog(
+        "INFO",
+        f"[Admin] 管理员 {current_user.get('uuid')} 查看系统配置",
+        sid=True,
+        sidp="system",
+        log_type="admin",
+        event_type="CONFIG_VIEW",
+        client_ip=_client_ip(request),
+        request_method=request.method,
+        request_url=str(request.url),
+        user_agent=request.headers.get("user-agent"),
+    )
     return {"groups": groups}
 
 
@@ -729,4 +910,3 @@ async def admin_update_question_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="题目不存在")
     CustomLog("SUCCESS", f"[Admin] 管理员切换题目状态 uuid={question_uuid} -> {payload.status}")
     return updated
-
