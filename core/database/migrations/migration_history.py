@@ -23,4 +23,6 @@ migration_history =[
     "add_refresh_tokens.sql",
     "alter_users_add_deletion_scheduled_at.sql",
     "alter_register_questions_add_options.sql",
+    "alter_system_logs_add_structured_fields.sql",
+    "alter_personal_logs_add_structured_fields.sql",
 ]

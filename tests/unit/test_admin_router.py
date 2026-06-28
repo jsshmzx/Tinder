@@ -180,6 +180,10 @@ def test_admin_update_user(admin_client, monkeypatch):
     monkeypatch.setattr(admin_v1.UsersDAO, "update", _mock_update, raising=False)
     monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
 
+    async def _mock_find_by_uuid(self, uuid):
+        return None if uuid == "nonexistent-uuid" else {"uuid": uuid, "nickname": "OldName"}
+    monkeypatch.setattr(admin_v1.UsersDAO, "find_by_uuid", _mock_find_by_uuid, raising=False)
+
     resp = admin_client.patch(
         "/admin/users/u-1",
         json={"nickname": "UpdatedName"},
@@ -192,6 +196,10 @@ def test_admin_update_user(admin_client, monkeypatch):
 
 def test_admin_update_user_returns_404_when_not_found(admin_client, monkeypatch):
     monkeypatch.setattr(admin_v1.UsersDAO, "update", _mock_update, raising=False)
+
+    async def _mock_find_by_uuid(self, uuid):
+        return None if uuid == "nonexistent-uuid" else {"uuid": uuid, "nickname": "OldName"}
+    monkeypatch.setattr(admin_v1.UsersDAO, "find_by_uuid", _mock_find_by_uuid, raising=False)
 
     resp = admin_client.patch(
         "/admin/users/nonexistent-uuid",
@@ -246,6 +254,10 @@ def test_admin_disable_user(admin_client, monkeypatch):
     monkeypatch.setattr(admin_v1.UsersDAO, "update", capture_update, raising=False)
     monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
 
+    async def _mock_find_by_uuid(self, uuid):
+        return None if uuid == "nonexistent-uuid" else {"uuid": uuid, "current_status": "normal"}
+    monkeypatch.setattr(admin_v1.UsersDAO, "find_by_uuid", _mock_find_by_uuid, raising=False)
+
     resp = admin_client.post("/admin/users/u-1/disable")
     assert resp.status_code == 200
     data = resp.json()
@@ -259,6 +271,10 @@ def test_admin_disable_user_returns_404(admin_client, monkeypatch):
         return {"uuid": uuid, **data}
 
     monkeypatch.setattr(admin_v1.UsersDAO, "update", capture_update, raising=False)
+
+    async def _mock_find_by_uuid(self, uuid):
+        return None if uuid == "nonexistent-uuid" else {"uuid": uuid, "current_status": "normal"}
+    monkeypatch.setattr(admin_v1.UsersDAO, "find_by_uuid", _mock_find_by_uuid, raising=False)
 
     resp = admin_client.post("/admin/users/nonexistent-uuid/disable")
     assert resp.status_code == 404
@@ -285,6 +301,10 @@ def test_admin_enable_user(admin_client, monkeypatch):
     monkeypatch.setattr(admin_v1.UsersDAO, "update", capture_update, raising=False)
     monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
 
+    async def _mock_find_by_uuid(self, uuid):
+        return {"uuid": uuid, "current_status": "disabled"}
+    monkeypatch.setattr(admin_v1.UsersDAO, "find_by_uuid", _mock_find_by_uuid, raising=False)
+
     resp = admin_client.post("/admin/users/u-1/enable")
     assert resp.status_code == 200
     data = resp.json()
@@ -301,6 +321,10 @@ def test_admin_ban_user(admin_client, monkeypatch):
 
     monkeypatch.setattr(admin_v1.UsersDAO, "update", capture_update, raising=False)
     monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    async def _mock_find_by_uuid(self, uuid):
+        return {"uuid": uuid, "current_status": "normal"}
+    monkeypatch.setattr(admin_v1.UsersDAO, "find_by_uuid", _mock_find_by_uuid, raising=False)
 
     resp = admin_client.post("/admin/users/u-1/ban")
     assert resp.status_code == 200
@@ -319,6 +343,10 @@ def test_admin_unban_user(admin_client, monkeypatch):
 
     monkeypatch.setattr(admin_v1.UsersDAO, "update", capture_update, raising=False)
     monkeypatch.setattr(admin_v1, "invalidate_user_cache", _mock_invalidate)
+
+    async def _mock_find_by_uuid(self, uuid):
+        return {"uuid": uuid, "current_status": "banned"}
+    monkeypatch.setattr(admin_v1.UsersDAO, "find_by_uuid", _mock_find_by_uuid, raising=False)
 
     resp = admin_client.post("/admin/users/u-1/unban")
     assert resp.status_code == 200
