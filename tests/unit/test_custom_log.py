@@ -195,9 +195,14 @@ def test_explicit_field_overrides_context(capsys):
 
 
 def test_get_log_context_returns_empty_when_not_set():
-    ctx = get_log_context()
-    assert ctx.trace_id is None
-    assert ctx.client_ip is None
+    token = set_log_context(None)
+    try:
+        ctx = get_log_context()
+        assert ctx.trace_id is None
+        assert ctx.client_ip is None
+    finally:
+        from core.helper.CustomLog.index import reset_log_context
+        reset_log_context(token)
 
 
 # ---------------------------------------------------------------------------
