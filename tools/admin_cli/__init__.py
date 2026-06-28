@@ -14,7 +14,7 @@
 - ``shell``       交互式 Shell 循环
 """
 
-from admin_cli.base import double_sha256_hex, print_json
+from admin_cli.base import double_sha256_hex, print_json, run_async
 from admin_cli.api_client import ApiClient
 from admin_cli.db_client import DbClient
 
@@ -23,4 +23,5 @@ __all__ = [
     "DbClient",
     "double_sha256_hex",
     "print_json",
+    "run_async",
 ]

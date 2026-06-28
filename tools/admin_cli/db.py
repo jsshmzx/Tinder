@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 
-from admin_cli.base import print_json
+from admin_cli.base import print_json, run_async
 from admin_cli.context import AdminContext
 from admin_cli.menu import prompt
 
@@ -19,7 +18,7 @@ def run_interactive(ctx: AdminContext) -> None:
 def run(ctx: AdminContext, sub: argparse.Namespace) -> None:
     if ctx.mode != "db":
         raise RuntimeError("db sql 命令仅在 --mode db 下可用")
-    rows = asyncio.run(ctx.require_db().run_sql(sub.sql))
+    rows = run_async(ctx.require_db().run_sql(sub.sql))
     print_json(rows)
 
 

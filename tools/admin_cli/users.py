@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 from typing import Any
 
 from tools.admin_cli.base import (
     generate_random_password,
     parse_json_or_prompt,
     print_json,
+    run_async,
 )
 from tools.admin_cli.context import AdminContext
 from tools.admin_cli.menu import (
@@ -72,7 +72,7 @@ def list_users(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
         items = data if isinstance(data, list) else data.get("items", [])
         total = data.get("total") if isinstance(data, dict) else None
     else:
-        items = asyncio.run(
+        items = run_async(
             ctx.require_db().list_users(
                 keyword=params.get("keyword"),
                 status=params.get("status"),
@@ -123,7 +123,7 @@ def get_user(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
         ctx.ensure_login()
         data = ctx.require_api().get(f"/api/v1/admin/users/{user_uuid}")
     else:
-        data = asyncio.run(ctx.require_db().get_user(user_uuid))
+        data = run_async(ctx.require_db().get_user(user_uuid))
     print_json(data)
 
 
@@ -151,7 +151,7 @@ def _list_users_for_pick(ctx: AdminContext, limit: int = 50) -> list[dict[str, A
         ctx.ensure_login()
         data = ctx.require_api().get("/api/v1/admin/users", {"limit": limit})
         return data if isinstance(data, list) else data.get("items", [])
-    return asyncio.run(ctx.require_db().list_users(limit=limit))
+    return run_async(ctx.require_db().list_users(limit=limit))
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +196,7 @@ def create_user(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
         ctx.ensure_login()
         data = ctx.require_api().post("/api/v1/admin/users", json_data=payload)
     else:
-        data = asyncio.run(ctx.require_db().create_user(payload))
+        data = run_async(ctx.require_db().create_user(payload))
     print_json(data)
 
 
@@ -242,7 +242,7 @@ def update_user(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
         ctx.ensure_login()
         data = ctx.require_api().patch(f"/api/v1/admin/users/{user_uuid}", json_data=payload)
     else:
-        data = asyncio.run(ctx.require_db().update_user(user_uuid, payload))
+        data = run_async(ctx.require_db().update_user(user_uuid, payload))
     print_json(data)
 
 
@@ -267,7 +267,7 @@ def delete_user(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
         )
         print("删除成功")
     else:
-        ok = asyncio.run(ctx.require_db().delete_user(user_uuid))
+        ok = run_async(ctx.require_db().delete_user(user_uuid))
         print("删除成功" if ok else "删除失败或用户不存在")
 
 
@@ -298,7 +298,7 @@ def reset_password(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
             },
         )
     else:
-        asyncio.run(ctx.require_db().reset_password(user_uuid, new_password))
+        run_async(ctx.require_db().reset_password(user_uuid, new_password))
     print("密码重置成功")
     print(f"新密码: {new_password}")
     print("请将该密码告知用户，登录时系统会自动做双重哈希。")
@@ -322,7 +322,7 @@ def change_status(ctx: AdminContext) -> None:
         ctx.ensure_login()
         ctx.require_api().post(f"/api/v1/admin/users/{user_uuid}/{action}")
     else:
-        asyncio.run(ctx.require_db().set_user_status(user_uuid, action))
+        run_async(ctx.require_db().set_user_status(user_uuid, action))
     print(f"操作 {action} 成功")
 
 
@@ -368,5 +368,5 @@ def change_status_with_uuid(
         ctx.ensure_login()
         ctx.require_api().post(f"/api/v1/admin/users/{target}/{action}")
     else:
-        asyncio.run(ctx.require_db().set_user_status(target, action))
+        run_async(ctx.require_db().set_user_status(target, action))
     print(f"操作 {action} 成功")

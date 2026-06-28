@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 from typing import Any
 
-from admin_cli.base import parse_json_or_prompt, print_json
+from admin_cli.base import parse_json_or_prompt, print_json, run_async
 from admin_cli.context import AdminContext
 from admin_cli.menu import (
     confirm,
@@ -52,7 +51,7 @@ def list_questions(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
         items = data if isinstance(data, list) else data.get("items", [])
         total = data.get("total") if isinstance(data, dict) else None
     else:
-        items = asyncio.run(
+        items = run_async(
             ctx.require_db().list_questions(
                 keyword=params.get("keyword"),
                 question_type=params.get("type"),
@@ -102,7 +101,7 @@ def get_question(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
         ctx.ensure_login()
         data = ctx.require_api().get(f"/api/v1/admin/questions/{qid}")
     else:
-        data = asyncio.run(ctx.require_db().get_question(qid))
+        data = run_async(ctx.require_db().get_question(qid))
     print_json(data)
 
 
@@ -128,7 +127,7 @@ def _list_questions_for_pick(ctx: AdminContext, limit: int = 50) -> list[dict[st
         ctx.ensure_login()
         data = ctx.require_api().get("/api/v1/admin/questions", {"limit": limit})
         return data if isinstance(data, list) else data.get("items", [])
-    return asyncio.run(ctx.require_db().list_questions(limit=limit))
+    return run_async(ctx.require_db().list_questions(limit=limit))
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +165,7 @@ def create_question(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
         ctx.ensure_login()
         data = ctx.require_api().post("/api/v1/admin/questions", json_data=payload)
     else:
-        data = asyncio.run(ctx.require_db().create_question(payload))
+        data = run_async(ctx.require_db().create_question(payload))
     print_json(data)
 
 
@@ -213,7 +212,7 @@ def update_question(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
             f"/api/v1/admin/questions/{qid}", json_data=payload
         )
     else:
-        data = asyncio.run(ctx.require_db().update_question(qid, payload))
+        data = run_async(ctx.require_db().update_question(qid, payload))
     print_json(data)
 
 
@@ -234,7 +233,7 @@ def delete_question(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
         ctx.require_api().delete(f"/api/v1/admin/questions/{qid}")
         print("删除成功")
     else:
-        ok = asyncio.run(ctx.require_db().delete_question(qid))
+        ok = run_async(ctx.require_db().delete_question(qid))
         print("删除成功" if ok else "删除失败或题目不存在")
 
 

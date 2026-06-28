@@ -75,10 +75,9 @@ def bootstrap(initial: dict[str, Any] | None = None) -> AdminContext | None:
                 return None
     else:
         # DB 模式：探测连接
-        import asyncio
-
         from sqlalchemy import text
 
+        from admin_cli.base import run_async
         from core.database.connection.pgsql import get_session
 
         async def _probe() -> None:
@@ -86,7 +85,7 @@ def bootstrap(initial: dict[str, Any] | None = None) -> AdminContext | None:
                 await session.execute(text("SELECT 1"))
 
         try:
-            asyncio.run(_probe())
+            run_async(_probe())
             print("数据库连接成功！")
         except Exception as exc:
             print(f"数据库连接失败: {exc}")

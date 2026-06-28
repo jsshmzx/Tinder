@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 from typing import Any
 
+from admin_cli.base import run_async
 from admin_cli.context import AdminContext
 from admin_cli.db_client import build_log_db_kwargs, build_log_params
 from admin_cli.menu import (
@@ -108,7 +108,7 @@ def query_system(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
         ctx.ensure_login()
         data = ctx.require_api().get("/api/v1/logs/system", params)
     else:
-        items, total = asyncio.run(
+        items, total = run_async(
             ctx.require_db().search_system_logs(**build_log_db_kwargs(sub) if sub else params)
         )
         data = {"total": total, "items": items}
@@ -136,7 +136,7 @@ def query_personal(ctx: AdminContext, sub: argparse.Namespace | None) -> None:
         kwargs = build_log_db_kwargs(params)
         if user_uuid:
             kwargs["user_uuids"] = [user_uuid]
-        items, total = asyncio.run(ctx.require_db().search_personal_logs(**kwargs))
+        items, total = run_async(ctx.require_db().search_personal_logs(**kwargs))
         data = {"total": total, "items": items}
     _print_log_result(data)
 
