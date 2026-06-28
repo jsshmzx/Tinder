@@ -9,6 +9,7 @@ import platform
 from core.config import settings
 from core.helper.CustomLog.index import CustomLog
 from core.middleware.firewall.index import FirewallMiddleware
+from core.middleware.log_context import LogContextMiddleware
 from core.database.connection.redis import redis_conn
 from core.database.connection.pgsql import dispose_engine, get_session
 
@@ -61,6 +62,9 @@ app.add_middleware(
 if settings.FW_ENABLED:
     app.add_middleware(FirewallMiddleware)
     CustomLog("INFO", "防火墙已启用（FW_ENABLED=true）")
+# 注册日志上下文中间件（最外层，为请求链路生成 trace_id 等公共上下文）
+app.add_middleware(LogContextMiddleware)
+CustomLog("INFO", "请求日志上下文中间件已启用")
 # 导入模块
 from modules.index.index import app as index_router
 from modules.api.v1.router import router as api_v1_router

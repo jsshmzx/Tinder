@@ -178,7 +178,11 @@ class CustomLog:
         self.request_url = request_url or ctx.request_url
         raw_trace_id = trace_id or ctx.trace_id
         self.trace_id = (
-            raw_trace_id if isinstance(raw_trace_id, str) else str(raw_trace_id) if raw_trace_id is not None else None
+            raw_trace_id
+            if isinstance(raw_trace_id, str)
+            else str(raw_trace_id)
+            if raw_trace_id is not None
+            else str(uuid.uuid4())
         )
         self.error_code = error_code
         self.error_msg = error_msg
