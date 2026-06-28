@@ -158,13 +158,15 @@ class CustomLog:
         extra_data: dict[str, Any] | None = None,
     ):
         self.log_level = log_level.upper()
-        self.content = content
+        self.content = content if isinstance(content, str) else str(content) if content is not None else ""
         self.log_style = log_style.upper()
         self.print_out = print_out
         self.sid = sid
         self.sidp = sidp
         self.log_type = log_type
-        self.user_uuid = user_uuid
+        self.user_uuid = (
+            user_uuid if isinstance(user_uuid, str) else str(user_uuid) if user_uuid is not None else None
+        )
 
         # 与当前上下文合并，显式参数优先级高于上下文
         ctx = get_log_context()
@@ -174,7 +176,14 @@ class CustomLog:
         self.user_agent = user_agent or ctx.user_agent
         self.request_method = request_method or ctx.request_method
         self.request_url = request_url or ctx.request_url
-        self.trace_id = trace_id or ctx.trace_id
+        raw_trace_id = trace_id or ctx.trace_id
+        self.trace_id = (
+            raw_trace_id
+            if isinstance(raw_trace_id, str)
+            else str(raw_trace_id)
+            if raw_trace_id is not None
+            else str(uuid.uuid4())
+        )
         self.error_code = error_code
         self.error_msg = error_msg
         self.target_type = target_type

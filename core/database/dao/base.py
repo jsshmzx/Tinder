@@ -1,6 +1,6 @@
 from typing import Any, ClassVar, Type
 
-from sqlalchemy import select
+from sqlalchemy import Text, select
 
 from core.database.connection.pgsql import Base, get_session
 
@@ -39,13 +39,20 @@ class BaseDAO:
 
         使用 SQLAlchemy 的 __mapper__.column_attrs 获取所有列属性，
         确保字典的键为数据库列名而非模型属性名。
+
+        对于 TEXT 等文本类型列，若数据库中意外存储了非字符串值（如 JSON 对象），
+        会强制转换为字符串，避免前端出现 [object Object]。
         """
         if obj is None:
             return {}
-        return {
-            col_prop.columns[0].name: getattr(obj, col_prop.key)
-            for col_prop in type(obj).__mapper__.column_attrs
-        }
+        result: dict[str, Any] = {}
+        for col_prop in type(obj).__mapper__.column_attrs:
+            col = col_prop.columns[0]
+            value = getattr(obj, col_prop.key)
+            if value is not None and isinstance(col.type, Text) and not isinstance(value, str):
+                value = str(value)
+            result[col.name] = value
+        return result
 
     @classmethod
     def _data_to_kwargs(cls, data: dict[str, Any]) -> dict[str, Any]:
