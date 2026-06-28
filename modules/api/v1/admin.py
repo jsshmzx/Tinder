@@ -597,6 +597,125 @@ async def admin_delete_question(
     return {"success": True}
 
 
+class ConfigViewRequest(BaseModel):
+    """查看系统配置请求体。"""
+    super_password: str = Field(..., description="超级密码")
+
+
+# 敏感配置项：值用 ****** 屏蔽
+_SENSITIVE_KEYS: set[str] = {
+    "DATABASE_URL",
+    "REDIS_URL",
+    "JWT_SECRET_KEY",
+    "SUPER_PASSWORD",
+}
+
+# 配置分组定义：(分组名, [(key, 中文说明), ...])
+_CONFIG_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
+    ("服务器", [
+        ("SERVER_HOST", "监听地址"),
+        ("SERVER_PORT", "监听端口"),
+        ("SERVER_RELOAD", "热重载"),
+        ("APP_ENV", "运行环境"),
+        ("TZ", "时区"),
+    ]),
+    ("API", [
+        ("API_V1_PREFIX", "API v1 前缀"),
+    ]),
+    ("CORS", [
+        ("CORS_ALLOW_ORIGINS", "允许来源"),
+        ("CORS_ALLOW_CREDENTIALS", "允许凭证"),
+    ]),
+    ("数据库", [
+        ("DATABASE_URL", "连接地址"),
+        ("DB_POOL_PRE_PING", "连接池预检"),
+    ]),
+    ("Redis", [
+        ("REDIS_URL", "连接地址"),
+        ("REDIS_INITIAL_RETRY_INTERVAL", "初始重试间隔（秒）"),
+        ("REDIS_MAX_RETRY_INTERVAL", "最大重试间隔（秒）"),
+        ("REDIS_HEARTBEAT_INTERVAL", "心跳间隔（秒）"),
+    ]),
+    ("JWT", [
+        ("JWT_SECRET_KEY", "签名密钥"),
+        ("ACCESS_TOKEN_EXPIRE_MINUTES", "访问令牌有效期（分钟）"),
+        ("TEMP_TOKEN_EXPIRE_MINUTES", "临时令牌有效期（分钟）"),
+        ("JWT_ALGORITHM", "签名算法"),
+    ]),
+    ("用户认证", [
+        ("AUTH_USER_CACHE_TTL_SECONDS", "认证缓存 TTL（秒）"),
+    ]),
+    ("防火墙", [
+        ("FW_ENABLED", "总开关"),
+        ("FW_MAX_REQUESTS_PER_SECOND", "每秒最大请求数"),
+        ("FW_BAN_THRESHOLD", "封禁触发阈值"),
+        ("FW_BAN_DURATION", "封禁时长（秒）"),
+    ]),
+    ("登录限流", [
+        ("LOGIN_MAX_ATTEMPTS_PER_IP_PER_MINUTE", "单 IP 每分钟最大尝试次数"),
+        ("LOGIN_MAX_ATTEMPTS_PER_USERNAME_PER_MINUTE", "单用户名每分钟最大尝试次数"),
+        ("LOGIN_RATE_WINDOW_SECONDS", "限流窗口（秒）"),
+    ]),
+    ("注册", [
+        ("REG_MAX_IP_ATTEMPTS_PER_DAY", "单 IP 每日最大注册次数"),
+        ("REG_MAX_NAME_ATTEMPTS_PER_DAY", "单姓名每日最大注册次数"),
+        ("REG_MAX_SHEET_ATTEMPTS", "答题卷最大尝试次数"),
+        ("REG_MAX_SHEETS_PER_IP_PER_DAY", "单 IP 每日最大答题卷数"),
+        ("REG_CORRECT_THRESHOLD", "及格正确题数"),
+        ("REG_QUESTION_COUNT", "题目数量"),
+        ("REG_SHEET_TTL_SECONDS", "答题卷有效期（秒）"),
+        ("ACCOUNT_DELETION_GRACE_DAYS", "账户注销宽限期（天）"),
+        ("MAX_PWD_CHG_ATTEMPTS_PER_DAY", "每日最大改密次数"),
+    ]),
+    ("定时任务", [
+        ("CRON_CLEANUP_INTERVAL_HOURS", "清理任务间隔（小时）"),
+    ]),
+    ("安全清理", [
+        ("REFRESH_TOKEN_CLEANUP_DAYS", "刷新令牌清理天数"),
+    ]),
+    ("超级密码", [
+        ("SUPER_PASSWORD", "超级密码"),
+    ]),
+]
+
+
+@router.post("/config", response_model=dict[str, Any])
+async def admin_view_config(
+    payload: ConfigViewRequest,
+    _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
+):
+    """管理员查看系统配置（只读）。
+
+    安全限制：
+    1. 必须为 superadmin 角色
+    2. 必须提供正确的超级密码
+    3. 敏感配置项（数据库连接串、密钥等）用 ****** 屏蔽
+    """
+    _verify_super_password(payload.super_password)
+
+    groups: list[dict[str, Any]] = []
+    for group_name, items in _CONFIG_GROUPS:
+        config_items: list[dict[str, Any]] = []
+        for key, description in items:
+            raw_value = getattr(settings, key, None)
+            if key in _SENSITIVE_KEYS:
+                display_value = "******" if raw_value else ""
+            else:
+                display_value = raw_value
+            config_items.append({
+                "key": key,
+                "value": display_value,
+                "description": description,
+            })
+        groups.append({
+            "group": group_name,
+            "items": config_items,
+        })
+
+    CustomLog("INFO", "[Admin] 管理员查看系统配置")
+    return {"groups": groups}
+
+
 @router.patch("/questions/{question_uuid}/status", response_model=dict[str, Any])
 async def admin_update_question_status(
     question_uuid: str,
