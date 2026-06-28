@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Integer, Text, func, select
+from sqlalchemy import Integer, Text, false, func, select
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -75,8 +75,12 @@ class PersonalLogsDAO(BaseDAO):
             count_stmt = select(func.count(PersonalLog.id))
 
             filters = []
-            if user_uuids:
+            if user_uuids is None:
+                pass  # 无权限过滤，管理员可查看全部
+            elif user_uuids:
                 filters.append(PersonalLog.user_uuid.in_(user_uuids))
+            else:
+                filters.append(false())
             if event_type:
                 filters.append(PersonalLog.event_type == event_type)
             if log_type:
