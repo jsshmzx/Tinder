@@ -1,8 +1,6 @@
 # 导入pgsql
 import psycopg2
-from psycopg2 import sql
 import os
-from datetime import datetime
 import dotenv
 from core.helper.CustomLog.index import CustomLog
 

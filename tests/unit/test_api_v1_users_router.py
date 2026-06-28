@@ -481,6 +481,8 @@ def client_with_auth(monkeypatch) -> TestClient:
     async def fake_find_password_hash(session, user_uuid):
         return _OLD_HEX
     monkeypatch.setattr(users_v1.UsersDAO, "find_password_hash", fake_find_password_hash)
+    # Mock get_session: change_password 现在使用 DB 查询密码哈希
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
     # Mock revoke_all_for_user: 变更密码后吊销所有 token（单元测试无需真实 DB）
     async def fake_revoke_all_for_user(user_uuid):
         pass
@@ -535,6 +537,7 @@ def test_change_password_returns_400_when_no_password_set(monkeypatch):
     async def fake_find_password_hash(session, user_uuid):
         return None
     monkeypatch.setattr(users_v1.UsersDAO, "find_password_hash", fake_find_password_hash)
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
     client = TestClient(app)
 
     response = client.patch(
@@ -752,3 +755,358 @@ def test_update_profile_returns_403_when_account_banned(monkeypatch):
     )
     assert response.status_code == 403
     assert "账号状态异常" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# POST /users/register/complete — 完成注册 Step 2
+# ---------------------------------------------------------------------------
+
+
+def test_register_complete_success(monkeypatch):
+    """正常完成注册 Step 2，返回 201 + access_token + refresh_token + user data。"""
+    app = FastAPI()
+    app.include_router(users_v1.router)
+    app.dependency_overrides[users_v1.get_temp_user] = lambda: {"uuid": "user-temp-uuid"}
+    client = TestClient(app)
+
+    # Mock get_session
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
+
+    # Mock find_by_username — 返回 None（无冲突）
+    async def fake_find_by_username(session, username):
+        return None
+    monkeypatch.setattr(users_v1.UsersDAO, "find_by_username", fake_find_by_username)
+
+    # Mock find_by_username_or_email — 返回 None（无冲突）
+    async def fake_find_by_username_or_email(session, login_identifier):
+        return None
+    monkeypatch.setattr(users_v1.UsersDAO, "find_by_username_or_email", fake_find_by_username_or_email)
+
+    # Mock update
+    async def fake_update(self, uuid, data):
+        return {
+            "uuid": uuid,
+            "nickname": "小明",
+            "real_name": "明明",
+            "username": data.get("username", "testuser"),
+            "email": data.get("email"),
+            "class": "高一(1)班",
+            "class_type": "high-school",
+            "user_role": "normal-user",
+            "is_verified": False,
+            "current_status": "normal",
+        }
+    monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update, raising=False)
+
+    # Mock JWT & refresh token
+    monkeypatch.setattr(users_v1, "create_access_token", lambda subject: "mock-access-token")
+    monkeypatch.setattr(users_v1, "generate_refresh_token", lambda: ("mock-plaintext-rt", "mock-hash-rt"))
+
+    # Mock RefreshTokensDAO.create
+    async def fake_rt_create(user_uuid, token_hash):
+        pass
+    monkeypatch.setattr(users_v1.RefreshTokensDAO, "create", fake_rt_create)
+
+    body = {
+        "username": "testuser",
+        "password": _OLD_HEX,
+        "email": "test@example.com",
+    }
+    response = client.post("/users/register/complete", json=body)
+
+    assert response.status_code == 201
+    data = response.json()
+    assert data["access_token"] == "mock-access-token"
+    assert data["refresh_token"] == "mock-plaintext-rt"
+    assert data["token_type"] == "bearer"
+    assert data["user"]["username"] == "testuser"
+    assert data["user"]["email"] == "test@example.com"
+
+
+def test_register_complete_username_taken(monkeypatch):
+    """用户名已被使用 → 409 "用户名已被使用"。"""
+    app = FastAPI()
+    app.include_router(users_v1.router)
+    app.dependency_overrides[users_v1.get_temp_user] = lambda: {"uuid": "user-temp-uuid"}
+    client = TestClient(app)
+
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
+
+    # find_by_username 返回一个已存在的用户（不同 uuid）
+    async def fake_find_by_username(session, username):
+        return SimpleNamespace(uuid="other-uuid")
+    monkeypatch.setattr(users_v1.UsersDAO, "find_by_username", fake_find_by_username)
+
+    body = {
+        "username": "takenuser",
+        "password": _OLD_HEX,
+    }
+    response = client.post("/users/register/complete", json=body)
+
+    assert response.status_code == 409
+    assert "用户名已被使用" in response.json()["detail"]
+
+
+def test_register_complete_email_taken(monkeypatch):
+    """邮箱已被使用 → 409 "邮箱已被使用"。"""
+    app = FastAPI()
+    app.include_router(users_v1.router)
+    app.dependency_overrides[users_v1.get_temp_user] = lambda: {"uuid": "user-temp-uuid"}
+    client = TestClient(app)
+
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
+
+    # find_by_username 返回 None
+    async def fake_find_by_username(session, username):
+        return None
+    monkeypatch.setattr(users_v1.UsersDAO, "find_by_username", fake_find_by_username)
+
+    # find_by_username_or_email 返回冲突（不同 uuid）
+    async def fake_find_by_username_or_email(session, login_identifier):
+        return SimpleNamespace(uuid="other-uuid")
+    monkeypatch.setattr(users_v1.UsersDAO, "find_by_username_or_email", fake_find_by_username_or_email)
+
+    body = {
+        "username": "newuser",
+        "password": _OLD_HEX,
+        "email": "taken@example.com",
+    }
+    response = client.post("/users/register/complete", json=body)
+
+    assert response.status_code == 409
+    assert "邮箱已被使用" in response.json()["detail"]
+
+
+def test_register_complete_username_invalid_chars(monkeypatch):
+    """用户名包含 "@!" 等非法字符 → 422。"""
+    app = FastAPI()
+    app.include_router(users_v1.router)
+    app.dependency_overrides[users_v1.get_temp_user] = lambda: {"uuid": "user-temp-uuid"}
+    client = TestClient(app)
+
+    body = {
+        "username": "bad@user!",
+        "password": _OLD_HEX,
+    }
+    response = client.post("/users/register/complete", json=body)
+
+    assert response.status_code == 422
+
+
+def test_register_complete_password_not_hex64(monkeypatch):
+    """密码不是 64 字符 hex → 422 (短密码 + 非 hex 密码)。"""
+    app = FastAPI()
+    app.include_router(users_v1.router)
+    app.dependency_overrides[users_v1.get_temp_user] = lambda: {"uuid": "user-temp-uuid"}
+    client = TestClient(app)
+
+    # 短密码
+    body1 = {
+        "username": "testuser",
+        "password": "short",
+    }
+    response1 = client.post("/users/register/complete", json=body1)
+    assert response1.status_code == 422
+
+    # 非 hex 但长度 64
+    body2 = {
+        "username": "testuser",
+        "password": "x" * 64,
+    }
+    response2 = client.post("/users/register/complete", json=body2)
+    assert response2.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# DELETE /users/me — 账号注销
+# ---------------------------------------------------------------------------
+
+
+def test_delete_account_success(monkeypatch):
+    """正常注销 → 200 + pending_deletion 状态。"""
+    user = {
+        **_FAKE_USER,
+        "password": _OLD_HEX,
+        "current_status": "normal",
+    }
+    app = FastAPI()
+    app.include_router(users_v1.router)
+    app.dependency_overrides[users_v1.get_current_user] = lambda: user
+    client = TestClient(app)
+
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
+
+    def fake_verify(plain, stored):
+        return plain == stored
+    monkeypatch.setattr(users_v1, "verify_password", fake_verify)
+
+    async def fake_find_password_hash(session, user_uuid):
+        return _OLD_HEX
+    monkeypatch.setattr(users_v1.UsersDAO, "find_password_hash", fake_find_password_hash)
+
+    updated = []
+
+    async def fake_update(self, uuid, data):
+        updated.append((uuid, data))
+        return {**user, **data}
+    monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update, raising=False)
+
+    async def fake_revoke_all(user_uuid):
+        pass
+    monkeypatch.setattr(users_v1.RefreshTokensDAO, "revoke_all_for_user", fake_revoke_all)
+
+    monkeypatch.setattr(users_v1, "invalidate_user_cache", lambda uuid: None)
+
+    response = client.request("DELETE", "/users/me", json={"password": _OLD_HEX})
+
+    assert response.status_code == 200
+    assert "注销冷却期" in response.json()["message"]
+    assert len(updated) == 1
+    assert updated[0][1]["current_status"] == "pending_deletion"
+
+
+def test_delete_account_wrong_password(monkeypatch):
+    """密码错误 → 400 "密码不正确"。"""
+    user = {
+        **_FAKE_USER,
+        "password": _OLD_HEX,
+        "current_status": "normal",
+    }
+    app = FastAPI()
+    app.include_router(users_v1.router)
+    app.dependency_overrides[users_v1.get_current_user] = lambda: user
+    client = TestClient(app)
+
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
+
+    def fake_verify(plain, stored):
+        return False
+    monkeypatch.setattr(users_v1, "verify_password", fake_verify)
+
+    async def fake_find_password_hash(session, user_uuid):
+        return _OLD_HEX
+    monkeypatch.setattr(users_v1.UsersDAO, "find_password_hash", fake_find_password_hash)
+
+    response = client.request("DELETE", "/users/me", json={"password": _WRONG_HEX})
+
+    assert response.status_code == 400
+    assert "密码不正确" in response.json()["detail"]
+
+
+def test_delete_account_no_password_set(monkeypatch):
+    """未设置密码 → 400 "未设置密码"。"""
+    user = {
+        **_FAKE_USER,
+        "password": None,
+        "current_status": "normal",
+    }
+    app = FastAPI()
+    app.include_router(users_v1.router)
+    app.dependency_overrides[users_v1.get_current_user] = lambda: user
+    client = TestClient(app)
+
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
+
+    async def fake_find_password_hash(session, user_uuid):
+        return None
+    monkeypatch.setattr(users_v1.UsersDAO, "find_password_hash", fake_find_password_hash)
+
+    response = client.request("DELETE", "/users/me", json={"password": _OLD_HEX})
+
+    assert response.status_code == 400
+    assert "未设置密码" in response.json()["detail"]
+
+
+def test_delete_account_banned_status(monkeypatch):
+    """账号被 banned → 403 "账号状态异常"。"""
+    user = {
+        **_FAKE_USER,
+        "password": _OLD_HEX,
+        "current_status": "banned",
+    }
+    app = FastAPI()
+    app.include_router(users_v1.router)
+    app.dependency_overrides[users_v1.get_current_user] = lambda: user
+    client = TestClient(app)
+
+    response = client.request("DELETE", "/users/me", json={"password": _OLD_HEX})
+
+    assert response.status_code == 403
+    assert "账号状态异常" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# GET /users/me — 获取用户信息（异常分支）
+# ---------------------------------------------------------------------------
+
+
+def test_read_users_me_not_found(monkeypatch):
+    """find_by_uuid 返回 None → 404 "用户不存在"。"""
+    app = FastAPI()
+    app.include_router(users_v1.router)
+    app.dependency_overrides[users_v1.get_current_user] = lambda: {"uuid": "nonexistent-uuid"}
+    client = TestClient(app)
+
+    async def fake_find_by_uuid(self, uuid):
+        return None
+    monkeypatch.setattr(users_v1.UsersDAO, "find_by_uuid", fake_find_by_uuid, raising=False)
+
+    response = client.get("/users/me")
+    assert response.status_code == 404
+    assert "用户不存在" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# PATCH /users/me/password — 修改密码（异常分支）
+# ---------------------------------------------------------------------------
+
+
+def test_change_password_db_error_returns_500(client_with_auth, monkeypatch):
+    """update 抛出 Exception → 500 "密码修改失败"。"""
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
+
+    async def fake_update_raise(self, uuid, data):
+        raise Exception("DB Error")
+    monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update_raise, raising=False)
+
+    response = client_with_auth.patch(
+        "/users/me/password",
+        json={"old_password": _OLD_HEX, "new_password": _NEW_HEX},
+    )
+    assert response.status_code == 500
+    assert "密码修改失败" in response.json()["detail"]
+
+
+def test_change_password_user_not_found(client_with_auth, monkeypatch):
+    """update 返回 None → 404 "用户不存在"。"""
+    monkeypatch.setattr(users_v1, "get_session", _mock_get_session())
+
+    async def fake_update_none(self, uuid, data):
+        return None
+    monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update_none, raising=False)
+
+    response = client_with_auth.patch(
+        "/users/me/password",
+        json={"old_password": _OLD_HEX, "new_password": _NEW_HEX},
+    )
+    assert response.status_code == 404
+    assert "用户不存在" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/v1/users/me/profile — 修改个人信息（异常分支）
+# ---------------------------------------------------------------------------
+
+
+def test_update_profile_db_error_returns_500(profile_client, monkeypatch):
+    """update 抛出 Exception → 500 "个人信息修改失败"。"""
+    async def fake_update_raise(self, uuid, data):
+        raise Exception("DB Error")
+    monkeypatch.setattr(users_v1.UsersDAO, "update", fake_update_raise, raising=False)
+
+    response = profile_client.patch(
+        "/api/v1/users/me/profile",
+        json={"nickname": "新昵称"},
+    )
+    assert response.status_code == 500
+    assert "个人信息修改失败" in response.json()["detail"]

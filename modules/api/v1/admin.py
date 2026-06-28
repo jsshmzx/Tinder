@@ -1,8 +1,9 @@
 import json
+import re
 import uuid as uuid_lib
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select as sa_select
 
@@ -10,11 +11,12 @@ from core.config import settings
 from core.database.connection.pgsql import get_session
 from core.database.connection.redis import redis_conn
 from core.database.dao.register_questions import RegisterQuestionsDAO
+from core.database.dao.refresh_tokens import RefreshTokensDAO
 from core.database.dao.users import UsersDAO, User
-from core.middleware.auth.dependencies import MinRoleChecker, invalidate_user_cache, get_current_user, USER_CACHE_PREFIX
+from core.helper.CustomLog.index import CustomLog
+from core.middleware.auth.dependencies import USER_CACHE_PREFIX, MinRoleChecker, get_current_user, invalidate_user_cache
 from core.security.hash import get_password_hash
 from core.security.rbac import Role
-from core.helper.CustomLog.index import CustomLog
 
 
 router = APIRouter(prefix="/admin", tags=["Admin v1"])
@@ -37,6 +39,48 @@ def _verify_super_password(password: str) -> None:
         )
 
 
+def _client_ip(request: Request) -> str:
+    """获取客户端真实 IP。"""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _log_user_personal_event(
+    *,
+    request: Request,
+    user_uuid: str,
+    event_type: str,
+    content: str,
+    status: str = "SUCCESS",
+    before_data: dict[str, Any] | None = None,
+    after_data: dict[str, Any] | None = None,
+    target_type: str = "USER",
+    target_name: str | None = None,
+) -> None:
+    """记录一条以目标用户为主体的个人日志。"""
+    CustomLog(
+        "SUCCESS" if status == "SUCCESS" else "WARNING",
+        content,
+        sid=True,
+        sidp="personal",
+        log_type="admin",
+        event_type=event_type,
+        status=status,
+        user_uuid=user_uuid,
+        target_type=target_type,
+        target_id=user_uuid,
+        target_name=target_name,
+        before_data=before_data,
+        after_data=after_data,
+        client_ip=_client_ip(request),
+        request_method=request.method,
+        request_url=str(request.url),
+        user_agent=request.headers.get("user-agent"),
+    )
+
+
 def _batch_invalidate_user_cache(uuids: list[str]) -> None:
     """批量失效 Redis 用户缓存，使用 pipeline 减少网络往返。"""
     client = redis_conn.get_client()
@@ -49,6 +93,25 @@ def _batch_invalidate_user_cache(uuids: list[str]) -> None:
         pipe.execute()
     except Exception as exc:
         CustomLog("WARNING", f"[Admin] 批量缓存失效失败 count={len(uuids)} exc={exc}")
+
+
+class ResetPasswordRequest(BaseModel):
+    """管理员重置密码请求体。"""
+    super_password: str = Field(..., description="超级密码")
+    new_password: str = Field(..., min_length=64, max_length=64, description="新密码（64 字符 SHA256 hex）")
+
+    @field_validator("new_password")
+    @classmethod
+    def password_must_be_hex64(cls, v: str) -> str:
+        if not re.fullmatch(r"[a-fA-F0-9]{64}", v):
+            raise ValueError("密码必须为 64 字符 SHA256 哈希值（hex）")
+        return v
+
+
+class SensitiveDataRequest(BaseModel):
+    """敏感信息查看请求体。"""
+    super_password: str = Field(..., description="超级密码")
+    uuids: list[str] = Field(..., min_length=1, max_length=50, description="要查询的用户 UUID 列表")
 
 
 @router.get("/users", response_model=list[dict[str, Any]])
@@ -114,22 +177,43 @@ async def admin_create_user(
 
 @router.patch("/users/{user_uuid}", response_model=dict[str, Any])
 async def admin_update_user(
+    request: Request,
     user_uuid: str,
     payload: dict[str, Any],
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员：编辑用户信息（含角色、状态）。"""
+    target_user = await UsersDAO().find_by_uuid(user_uuid)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
     if payload.get("password"):
         payload["password"] = get_password_hash(str(payload["password"]))
+
     updated = await UsersDAO().update(user_uuid, payload)
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
+
+    # 记录变更字段的 before/after，敏感字段 password 不记录
+    changed_keys = {k for k in payload.keys() if k != "password"}
+    before_data = {k: target_user.get(k) for k in changed_keys if k in target_user}
+    after_data = {k: updated.get(k) for k in changed_keys if k in updated}
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_UPDATE",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 更新用户信息",
+        before_data=before_data,
+        after_data=after_data,
+    )
     return updated
 
 
 @router.delete("/users/batch", response_model=dict[str, Any])
 async def admin_batch_delete_users(
+    request: Request,
     payload: dict[str, Any],
     current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
@@ -174,12 +258,33 @@ async def admin_batch_delete_users(
 
     # 批量失效 Redis 缓存（使用 pipeline 减少网络往返）
     _batch_invalidate_user_cache(uuids)
-    CustomLog("SUCCESS", f"[Admin] 批量删除用户 count={len(uuids)} actual_deleted={deleted_count}")
+
+    # 为每个被删除用户记录个人日志，并记录一条系统日志
+    for uid in uuids:
+        _log_user_personal_event(
+            request=request,
+            user_uuid=uid,
+            event_type="USER_DELETE",
+            content=f"[Admin] 管理员 {current_user.get('uuid')} 批量删除用户",
+        )
+    CustomLog(
+        "SUCCESS",
+        f"[Admin] 批量删除用户 count={len(uuids)} actual_deleted={deleted_count}",
+        sid=True,
+        sidp="system",
+        log_type="admin",
+        event_type="USER_BATCH_DELETE",
+        client_ip=_client_ip(request),
+        request_method=request.method,
+        request_url=str(request.url),
+        user_agent=request.headers.get("user-agent"),
+    )
     return {"deleted": deleted_count}
 
 
 @router.delete("/users/{user_uuid}", response_model=dict[str, Any])
 async def admin_delete_user(
+    request: Request,
     user_uuid: str,
     payload: dict[str, Any],
     current_user: dict = Depends(get_current_user),
@@ -232,63 +337,212 @@ async def admin_delete_user(
     if not ok:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
+
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_DELETE",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 删除用户",
+        before_data={"user_role": target_role, "current_status": target_user.get("current_status")},
+    )
     return {"success": True}
 
 
 @router.post("/users/{user_uuid}/disable", response_model=dict[str, Any])
 async def admin_disable_user(
+    request: Request,
     user_uuid: str,
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员：禁用用户。"""
+    target_user = await UsersDAO().find_by_uuid(user_uuid)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
     updated = await UsersDAO().update(user_uuid, {"current_status": "disabled"})
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    CustomLog("SUCCESS", f"[Admin] 禁用用户 uuid={user_uuid}")
+
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_DISABLE",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 禁用用户",
+        before_data={"current_status": target_user.get("current_status")},
+        after_data={"current_status": "disabled"},
+    )
     return updated
 
 
 @router.post("/users/{user_uuid}/enable", response_model=dict[str, Any])
 async def admin_enable_user(
+    request: Request,
     user_uuid: str,
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员：启用用户。"""
+    target_user = await UsersDAO().find_by_uuid(user_uuid)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
     updated = await UsersDAO().update(user_uuid, {"current_status": "normal"})
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    CustomLog("SUCCESS", f"[Admin] 启用用户 uuid={user_uuid}")
+
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_ENABLE",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 启用用户",
+        before_data={"current_status": target_user.get("current_status")},
+        after_data={"current_status": "normal"},
+    )
     return updated
 
 
 @router.post("/users/{user_uuid}/ban", response_model=dict[str, Any])
 async def admin_ban_user(
+    request: Request,
     user_uuid: str,
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员：封禁用户。"""
+    target_user = await UsersDAO().find_by_uuid(user_uuid)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
     updated = await UsersDAO().update(user_uuid, {"current_status": "banned"})
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    CustomLog("SUCCESS", f"[Admin] 封禁用户 uuid={user_uuid}")
+
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_BAN",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 封禁用户",
+        before_data={"current_status": target_user.get("current_status")},
+        after_data={"current_status": "banned"},
+    )
     return updated
 
 
 @router.post("/users/{user_uuid}/unban", response_model=dict[str, Any])
 async def admin_unban_user(
+    request: Request,
     user_uuid: str,
+    current_user: dict = Depends(get_current_user),
     _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
 ):
     """管理员：解除封禁。"""
+    target_user = await UsersDAO().find_by_uuid(user_uuid)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
     updated = await UsersDAO().update(user_uuid, {"current_status": "normal"})
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
-    CustomLog("SUCCESS", f"[Admin] 解封用户 uuid={user_uuid}")
+
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="USER_UNBAN",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 解除封禁",
+        before_data={"current_status": target_user.get("current_status")},
+        after_data={"current_status": "normal"},
+    )
     return updated
+
+
+@router.post("/users/{user_uuid}/reset-password", response_model=dict[str, Any])
+async def admin_reset_password(
+    request: Request,
+    user_uuid: str,
+    payload: ResetPasswordRequest,
+    current_user: dict = Depends(get_current_user),
+    _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
+):
+    """管理员重置用户密码。
+
+    安全限制：
+    1. 必须提供超级密码 (SUPER_PASSWORD)
+    2. 新密码必须是 64 字符 SHA256 hex
+    3. 重置后撤销该用户所有 refresh token，强制重新登录
+
+    允许重置任何用户的密码（包括管理员自己的）。
+    """
+    # 1. 校验超级密码
+    _verify_super_password(payload.super_password)
+
+    # 2. 哈希新密码并更新
+    new_hashed = get_password_hash(payload.new_password)
+    updated = await UsersDAO().update(user_uuid, {"password": new_hashed})
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
+
+    # 3. 撤销所有 refresh token，强制用户重新登录
+    await RefreshTokensDAO.revoke_all_for_user(user_uuid)
+
+    # 4. 失效 Redis 缓存
+    invalidate_user_cache(user_uuid)
+
+    _log_user_personal_event(
+        request=request,
+        user_uuid=user_uuid,
+        event_type="PASSWORD_RESET",
+        content=f"[Admin] 管理员 {current_user.get('uuid')} 重置用户密码",
+    )
+    return {"message": "密码重置成功"}
+
+
+@router.post("/users/sensitive-data", response_model=dict[str, Any])
+async def admin_sensitive_data(
+    request: Request,
+    payload: SensitiveDataRequest,
+    current_user: dict = Depends(get_current_user),
+    _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
+):
+    """管理员查看用户敏感信息（真实姓名、班级）。
+
+    安全限制：
+    1. 必须提供超级密码 (SUPER_PASSWORD)
+    2. 每次最多查询 50 个用户
+    """
+    # 1. 校验超级密码
+    _verify_super_password(payload.super_password)
+
+    # 2. 批量查询用户
+    async with get_session() as session:
+        users = await UsersDAO.find_by_uuids(session, payload.uuids)
+
+    # 3. 只返回 real_name 和 class
+    result: dict[str, dict[str, str | None]] = {}
+    for user in users:
+        uuid = user.get("uuid", "")
+        result[uuid] = {
+            "real_name": user.get("real_name"),
+            "class": user.get("class"),
+        }
+
+    CustomLog(
+        "INFO",
+        f"[Admin] 管理员 {current_user.get('uuid')} 查看敏感信息 count={len(payload.uuids)}",
+        sid=True,
+        sidp="system",
+        log_type="admin",
+        event_type="SENSITIVE_DATA_VIEW",
+        client_ip=_client_ip(request),
+        request_method=request.method,
+        request_url=str(request.url),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return {"data": result}
 
 
 # =========================================================================
@@ -511,6 +765,138 @@ async def admin_delete_question(
     return {"success": True}
 
 
+class ConfigViewRequest(BaseModel):
+    """查看系统配置请求体。"""
+    super_password: str = Field(..., description="超级密码")
+
+
+# 敏感配置项：值用 ****** 屏蔽
+_SENSITIVE_KEYS: set[str] = {
+    "DATABASE_URL",
+    "REDIS_URL",
+    "JWT_SECRET_KEY",
+    "SUPER_PASSWORD",
+}
+
+# 配置分组定义：(分组名, [(key, 中文说明), ...])
+_CONFIG_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
+    ("服务器", [
+        ("SERVER_HOST", "监听地址"),
+        ("SERVER_PORT", "监听端口"),
+        ("SERVER_RELOAD", "热重载"),
+        ("APP_ENV", "运行环境"),
+        ("TZ", "时区"),
+    ]),
+    ("API", [
+        ("API_V1_PREFIX", "API v1 前缀"),
+    ]),
+    ("CORS", [
+        ("CORS_ALLOW_ORIGINS", "允许来源"),
+        ("CORS_ALLOW_CREDENTIALS", "允许凭证"),
+    ]),
+    ("数据库", [
+        ("DATABASE_URL", "连接地址"),
+        ("DB_POOL_PRE_PING", "连接池预检"),
+    ]),
+    ("Redis", [
+        ("REDIS_URL", "连接地址"),
+        ("REDIS_INITIAL_RETRY_INTERVAL", "初始重试间隔（秒）"),
+        ("REDIS_MAX_RETRY_INTERVAL", "最大重试间隔（秒）"),
+        ("REDIS_HEARTBEAT_INTERVAL", "心跳间隔（秒）"),
+    ]),
+    ("JWT", [
+        ("JWT_SECRET_KEY", "签名密钥"),
+        ("ACCESS_TOKEN_EXPIRE_MINUTES", "访问令牌有效期（分钟）"),
+        ("TEMP_TOKEN_EXPIRE_MINUTES", "临时令牌有效期（分钟）"),
+        ("JWT_ALGORITHM", "签名算法"),
+    ]),
+    ("用户认证", [
+        ("AUTH_USER_CACHE_TTL_SECONDS", "认证缓存 TTL（秒）"),
+    ]),
+    ("防火墙", [
+        ("FW_ENABLED", "总开关"),
+        ("FW_MAX_REQUESTS_PER_SECOND", "每秒最大请求数"),
+        ("FW_BAN_THRESHOLD", "封禁触发阈值"),
+        ("FW_BAN_DURATION", "封禁时长（秒）"),
+    ]),
+    ("登录限流", [
+        ("LOGIN_MAX_ATTEMPTS_PER_IP_PER_MINUTE", "单 IP 每分钟最大尝试次数"),
+        ("LOGIN_MAX_ATTEMPTS_PER_USERNAME_PER_MINUTE", "单用户名每分钟最大尝试次数"),
+        ("LOGIN_RATE_WINDOW_SECONDS", "限流窗口（秒）"),
+    ]),
+    ("注册", [
+        ("REG_MAX_IP_ATTEMPTS_PER_DAY", "单 IP 每日最大注册次数"),
+        ("REG_MAX_NAME_ATTEMPTS_PER_DAY", "单姓名每日最大注册次数"),
+        ("REG_MAX_SHEET_ATTEMPTS", "答题卷最大尝试次数"),
+        ("REG_MAX_SHEETS_PER_IP_PER_DAY", "单 IP 每日最大答题卷数"),
+        ("REG_CORRECT_THRESHOLD", "及格正确题数"),
+        ("REG_QUESTION_COUNT", "题目数量"),
+        ("REG_SHEET_TTL_SECONDS", "答题卷有效期（秒）"),
+        ("ACCOUNT_DELETION_GRACE_DAYS", "账户注销宽限期（天）"),
+        ("MAX_PWD_CHG_ATTEMPTS_PER_DAY", "每日最大改密次数"),
+    ]),
+    ("定时任务", [
+        ("CRON_CLEANUP_INTERVAL_HOURS", "清理任务间隔（小时）"),
+    ]),
+    ("安全清理", [
+        ("REFRESH_TOKEN_CLEANUP_DAYS", "刷新令牌清理天数"),
+    ]),
+    ("超级密码", [
+        ("SUPER_PASSWORD", "超级密码"),
+    ]),
+]
+
+
+@router.post("/config", response_model=dict[str, Any])
+async def admin_view_config(
+    request: Request,
+    payload: ConfigViewRequest,
+    current_user: dict = Depends(get_current_user),
+    _: dict = Depends(MinRoleChecker(Role.SUPERADMIN.value)),
+):
+    """管理员查看系统配置（只读）。
+
+    安全限制：
+    1. 必须为 superadmin 角色
+    2. 必须提供正确的超级密码
+    3. 敏感配置项（数据库连接串、密钥等）用 ****** 屏蔽
+    """
+    _verify_super_password(payload.super_password)
+
+    groups: list[dict[str, Any]] = []
+    for group_name, items in _CONFIG_GROUPS:
+        config_items: list[dict[str, Any]] = []
+        for key, description in items:
+            raw_value = getattr(settings, key, None)
+            if key in _SENSITIVE_KEYS:
+                display_value = "******" if raw_value else ""
+            else:
+                display_value = raw_value
+            config_items.append({
+                "key": key,
+                "value": display_value,
+                "description": description,
+            })
+        groups.append({
+            "group": group_name,
+            "items": config_items,
+        })
+
+    CustomLog(
+        "INFO",
+        f"[Admin] 管理员 {current_user.get('uuid')} 查看系统配置",
+        sid=True,
+        sidp="system",
+        log_type="admin",
+        event_type="CONFIG_VIEW",
+        client_ip=_client_ip(request),
+        request_method=request.method,
+        request_url=str(request.url),
+        user_agent=request.headers.get("user-agent"),
+    )
+    return {"groups": groups}
+
+
 @router.patch("/questions/{question_uuid}/status", response_model=dict[str, Any])
 async def admin_update_question_status(
     question_uuid: str,
@@ -524,4 +910,3 @@ async def admin_update_question_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="题目不存在")
     CustomLog("SUCCESS", f"[Admin] 管理员切换题目状态 uuid={question_uuid} -> {payload.status}")
     return updated
-
