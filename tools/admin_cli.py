@@ -566,6 +566,7 @@ class AdminCli:
         path = "/api/v1/logs/personal"
         if sub.user_uuid:
             path = f"/api/v1/logs/personal/{sub.user_uuid}"
+            params.pop("user_uuid", None)
         if self.args.mode == "api":
             self.login_if_needed()
             data = self._ensure_api().get(path, params)
