@@ -1,8 +1,10 @@
 """Unit tests — core.helper.CustomLog.index.CustomLog"""
 
+import datetime
+
 import pytest
 
-from core.helper.CustomLog.index import CustomLog
+from core.helper.CustomLog.index import CustomLog, LogContext, _json_safe, get_log_context, set_log_context
 
 LOG_CLS = CustomLog
 
@@ -138,3 +140,89 @@ def test_print_out_false(capsys):
     out = capsys.readouterr().out
     assert out == ""
 
+
+# ---------------------------------------------------------------------------
+# Structured fields — trace_id in console output
+# ---------------------------------------------------------------------------
+
+def test_trace_id_printed_when_provided(capsys):
+    print("\n[TEST] 提供 trace_id 时控制台输出应包含 trace_id")
+    LOG_CLS(
+        "INFO",
+        "structured log",
+        print_out=True,
+        sid=False,
+        trace_id="trace-123",
+    )
+    out = capsys.readouterr().out
+    assert "trace-123" in out
+
+
+# ---------------------------------------------------------------------------
+# LogContext
+# ---------------------------------------------------------------------------
+
+def test_log_context_merged_into_log(capsys):
+    print("\n[TEST] LogContext 中的字段应被日志继承")
+    token = set_log_context(LogContext(trace_id="ctx-trace", client_ip="10.0.0.1"))
+    try:
+        LOG_CLS("INFO", "with context", print_out=True, sid=False)
+        out = capsys.readouterr().out
+        assert "ctx-trace" in out
+        # client_ip 不在控制台输出，但应被记录到对象中；这里仅验证上下文生效
+    finally:
+        from core.helper.CustomLog.index import reset_log_context
+        reset_log_context(token)
+
+
+def test_explicit_field_overrides_context(capsys):
+    print("\n[TEST] 显式参数应覆盖 LogContext 中的同名字段")
+    token = set_log_context(LogContext(trace_id="ctx-trace"))
+    try:
+        LOG_CLS(
+            "INFO",
+            "override context",
+            print_out=True,
+            sid=False,
+            trace_id="explicit-trace",
+        )
+        out = capsys.readouterr().out
+        assert "explicit-trace" in out
+        assert "ctx-trace" not in out
+    finally:
+        from core.helper.CustomLog.index import reset_log_context
+        reset_log_context(token)
+
+
+def test_get_log_context_returns_empty_when_not_set():
+    token = set_log_context(None)
+    try:
+        ctx = get_log_context()
+        assert ctx.trace_id is None
+        assert ctx.client_ip is None
+    finally:
+        from core.helper.CustomLog.index import reset_log_context
+        reset_log_context(token)
+
+
+# ---------------------------------------------------------------------------
+# JSON-safe conversion
+# ---------------------------------------------------------------------------
+
+def test_json_safe_converts_datetime():
+    dt = datetime.datetime(2026, 6, 28, 12, 0, 0)
+    assert _json_safe(dt) == "2026-06-28T12:00:00"
+
+
+def test_json_safe_converts_nested_dict():
+    dt = datetime.datetime(2026, 6, 28, 12, 0, 0)
+    data = {"user": {"created_at": dt, "tags": [dt, "ok"]}}
+    result = _json_safe(data)
+    assert result["user"]["created_at"] == "2026-06-28T12:00:00"
+    assert result["user"]["tags"] == ["2026-06-28T12:00:00", "ok"]
+
+
+def test_json_safe_leaves_simple_values_unchanged():
+    assert _json_safe("text") == "text"
+    assert _json_safe(123) == 123
+    assert _json_safe([1, 2, 3]) == [1, 2, 3]

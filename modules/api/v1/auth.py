@@ -7,14 +7,29 @@ from pydantic import BaseModel, Field
 
 from core.config import settings
 from core.database.connection.pgsql import get_session
-from core.database.dao.users import UsersDAO
 from core.database.dao.refresh_tokens import RefreshTokensDAO
+from core.database.dao.users import UsersDAO
+from core.helper.CustomLog.index import CustomLog
+from core.middleware.auth.dependencies import get_current_user
 from core.security.hash import verify_password
 from core.security.jwt_handler import create_access_token, generate_refresh_token
-from core.middleware.auth.dependencies import get_current_user
-from core.helper.CustomLog.index import CustomLog
 
 router = APIRouter(prefix="/auth", tags=["Auth v1"])
+
+
+class LoginRequest(BaseModel):
+    """JSON 登录请求体。"""
+
+    username: str = Field(..., min_length=1, description="用户名或邮箱")
+    password: str = Field(..., min_length=1, description="SHA256 双重哈希后的 hex 字符串（64 字符）")
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str
 
 
 def _login_redis_incr(key: str, ttl: int) -> int:
@@ -32,6 +47,14 @@ def _login_redis_incr(key: str, ttl: int) -> int:
         return 0
 
 
+def _client_ip(request: Request) -> str:
+    """获取客户端真实 IP。"""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/login", response_model=dict[str, Any])
 async def login(request: Request, body: LoginRequest):
     """用户登录，返回 Access Token 和 Refresh Token。
@@ -42,7 +65,7 @@ async def login(request: Request, body: LoginRequest):
     """
 
     # 速率限制：IP 级别和用户名级别
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _client_ip(request)
     ip_key = f"login_atm:ip:{client_ip}:min"
     un_key = f"login_atm:un:{body.username}:min"
 
@@ -63,12 +86,40 @@ async def login(request: Request, body: LoginRequest):
     async with get_session() as session:
         user = await UsersDAO.find_by_username_or_email(session, body.username)
         if not user or not user.password:
+            # 用户名不存在：记录系统日志（无法关联到具体用户）
+            CustomLog(
+                "WARNING",
+                f"[Login] 用户名或邮箱不存在 username={body.username}",
+                sid=True,
+                sidp="system",
+                log_type="auth",
+                event_type="LOGIN_FAIL",
+                status="FAIL",
+                client_ip=client_ip,
+                request_method="POST",
+                request_url=str(request.url),
+                user_agent=request.headers.get("user-agent"),
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="用户名或密码错误",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         if not verify_password(body.password, user.password):
+            CustomLog(
+                "WARNING",
+                f"[Login] 密码错误 username={body.username}",
+                sid=True,
+                sidp="personal",
+                log_type="auth",
+                event_type="LOGIN",
+                status="FAIL",
+                user_uuid=str(user.uuid),
+                client_ip=client_ip,
+                request_method="POST",
+                request_url=str(request.url),
+                user_agent=request.headers.get("user-agent"),
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="用户名或密码错误",
@@ -80,6 +131,21 @@ async def login(request: Request, body: LoginRequest):
         status_val = user.current_status
 
         if status_val in ("disabled", "banned"):
+            CustomLog(
+                "WARNING",
+                f"[Login] 账号已被禁用 username={body.username}",
+                sid=True,
+                sidp="personal",
+                log_type="auth",
+                event_type="LOGIN",
+                status="FAIL",
+                user_uuid=user_uuid,
+                client_ip=client_ip,
+                request_method="POST",
+                request_url=str(request.url),
+                user_agent=request.headers.get("user-agent"),
+                error_msg="账号已被禁用",
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="账号已被禁用，如有疑问请联系管理员",
@@ -94,7 +160,19 @@ async def login(request: Request, body: LoginRequest):
                     "current_status": "normal",
                     "deletion_scheduled_at": None,
                 })
-                CustomLog("SUCCESS", f"[Login] uuid={user_uuid} 冷却期内登录，账号已恢复")
+                CustomLog(
+                    "SUCCESS",
+                    f"[Login] uuid={user_uuid} 冷却期内登录，账号已恢复",
+                    sid=True,
+                    sidp="personal",
+                    log_type="auth",
+                    event_type="ACCOUNT_RECOVER",
+                    user_uuid=user_uuid,
+                    client_ip=client_ip,
+                    request_method="POST",
+                    request_url=str(request.url),
+                    user_agent=request.headers.get("user-agent"),
+                )
             else:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -110,26 +188,26 @@ async def login(request: Request, body: LoginRequest):
         "last_login_ip": client_ip,
     })
 
+    CustomLog(
+        "SUCCESS",
+        f"[Login] 用户登录成功 username={body.username}",
+        sid=True,
+        sidp="personal",
+        log_type="auth",
+        event_type="LOGIN",
+        status="SUCCESS",
+        user_uuid=user_uuid,
+        client_ip=client_ip,
+        request_method="POST",
+        request_url=str(request.url),
+        user_agent=request.headers.get("user-agent"),
+    )
+
     return {
         "access_token": access_token,
         "refresh_token": plaintext,
         "token_type": "bearer",
     }
-
-
-class LoginRequest(BaseModel):
-    """JSON 登录请求体。"""
-
-    username: str = Field(..., min_length=1, description="用户名或邮箱")
-    password: str = Field(..., min_length=1, description="SHA256 双重哈希后的 hex 字符串（64 字符）")
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-class LogoutRequest(BaseModel):
-    refresh_token: str
 
 
 @router.post("/refresh", response_model=dict[str, Any])
@@ -175,8 +253,23 @@ async def refresh_tokens(body: RefreshRequest):
 
 
 @router.post("/logout", response_model=dict[str, Any])
-async def logout(body: LogoutRequest, _: dict = Depends(get_current_user)):
+async def logout(request: Request, body: LogoutRequest, current_user: dict = Depends(get_current_user)):
     """登出当前设备，吊销 Refresh Token。Access Token 在有效期内自然失效。"""
     token_hash = hashlib.sha256(body.refresh_token.encode()).hexdigest()
     await RefreshTokensDAO.revoke(token_hash)
+
+    CustomLog(
+        "SUCCESS",
+        "[Auth] 用户登出",
+        sid=True,
+        sidp="personal",
+        log_type="auth",
+        event_type="LOGOUT",
+        status="SUCCESS",
+        user_uuid=current_user.get("uuid"),
+        client_ip=_client_ip(request),
+        request_method="POST",
+        request_url=str(request.url),
+        user_agent=request.headers.get("user-agent"),
+    )
     return {"message": "已登出"}
