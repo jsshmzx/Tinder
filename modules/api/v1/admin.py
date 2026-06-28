@@ -196,8 +196,8 @@ async def admin_update_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     invalidate_user_cache(user_uuid)
 
-    # 记录变更字段的 before/after
-    changed_keys = set(payload.keys())
+    # 记录变更字段的 before/after，敏感字段 password 不记录
+    changed_keys = {k for k in payload.keys() if k != "password"}
     before_data = {k: target_user.get(k) for k in changed_keys if k in target_user}
     after_data = {k: updated.get(k) for k in changed_keys if k in updated}
     _log_user_personal_event(
