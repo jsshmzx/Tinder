@@ -8,6 +8,7 @@
   python tools/seed_data.py --only users,songs     # 仅指定表，无交互
 """
 
+from admin_cli import run_async  # 导入run_async函数
 import argparse
 import asyncio
 import sys
@@ -145,4 +146,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run_async(main())
